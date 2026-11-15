@@ -1,4 +1,5 @@
-# 1단계: Vite 프로덕션 빌드 (Vite 8은 Node 20.19+ 또는 22 필요)
+# 프론트엔드는 화면 빌드까지만 담당한다(Vite 8은 Node 20.19+ 또는 22 필요).
+# 정적 파일 제공과 /api 프록시는 루트 nginx/ 이미지가 맡으며, nginx 빌드 시 이 이미지의 /app/dist를 복사한다.
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
@@ -6,10 +7,6 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-# 2단계: 정적 파일 제공과 /api 역방향 프록시
-FROM nginx:alpine
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/dist /usr/share/nginx/html
-EXPOSE 80
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -q -O /dev/null http://127.0.0.1/ || exit 1
+# 빌드 산출물만 담은 최종 이미지. 실행할 프로세스가 없으므로 컨테이너로 띄우지 않는다.
+FROM scratch
+COPY --from=build /app/dist /app/dist

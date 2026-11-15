@@ -1,5 +1,6 @@
 # 라즈베리파이(ARM64) 등에서 `docker compose up -d --build`로 실행한다.
-# 외부에는 frontend 포트 하나만 노출하고, backend·crawler는 내부 네트워크에서만 동작한다.
+# 상시 서비스는 nginx·backend·crawler이며 외부에는 nginx 포트 하나만 노출한다.
+# frontend는 화면 빌드 전용 이미지로, nginx 빌드에만 쓰이고 컨테이너로 실행하지 않는다.
 
 name: news-project
 
@@ -38,9 +39,19 @@ services:
     restart: unless-stopped
     logging: *default-logging
 
+  # 화면 빌드 전용. scale: 0이라 컨테이너를 만들지 않고, nginx 빌드가
+  # additional_contexts(service:frontend)로 이 이미지를 참조할 때 먼저 빌드된다.
   frontend:
     build: ./news-viewer/frontend
     image: news-frontend:latest
+    scale: 0
+
+  nginx:
+    build:
+      context: ./nginx
+      additional_contexts:
+        frontend-dist: service:frontend
+    image: news-nginx:latest
     ports:
       - "${WEB_PORT:-80}:80"
     depends_on:
