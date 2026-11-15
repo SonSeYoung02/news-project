@@ -58,3 +58,6 @@ AGENTS.md
 **/AGENTS.md
 CLAUDE.md
 **/CLAUDE.md
+
+# Blue-green deploy state (scripts/deploy.sh)
+/.deploy/
