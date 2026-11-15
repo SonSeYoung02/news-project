@@ -1,0 +1,124 @@
+# main 병합(push) 시 라즈베리파이 self-hosted runner에서 Docker Compose로 재배포한다.
+# 공개 저장소이므로 외부 기여자 코드가 실행될 수 있는 pull_request 계열 트리거는 절대 추가하지 않는다.
+# 배포 폴더(APP_DIR)는 최초 1회 수동으로 clone하고 news-crawling/.env를 준비해야 한다(README 참고).
+
+name: Deploy (Raspberry Pi)
+
+on:
+  push:
+    branches: [main]
+    # 실행 결과에 영향이 없는 문서·저장소 메타 파일만 바뀐 push는 배포하지 않는다.
+    # 건너뛴 커밋도 다음 배포의 fast-forward에 함께 반영되며, 수동 실행은 항상 가능하다.
+    paths-ignore:
+      - "**/*.md"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".gitattributes"
+      - ".gitignore"
+      - "start.ps1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 배포는 한 번에 하나만 실행한다. 진행 중인 배포는 취소하지 않고 다음 배포가 대기한다.
+concurrency:
+  group: deploy-raspberry-pi
+  cancel-in-progress: false
+
+env:
+  APP_DIR: /home/ms/news-project
+  # 서비스 기동 후 헬스체크 통과까지 기다리는 최대 시간(초). crawler → backend → nginx 순으로
+  # service_healthy를 기다리며, 각 헬스체크는 start-period + interval 30s × retries 3이라 여유를 둔다.
+  WAIT_TIMEOUT: "600"
+  GIT_TERMINAL_PROMPT: "0"
+
+jobs:
+  deploy:
+    name: Deploy to Raspberry Pi
+    # 수동 실행을 다른 브랜치에서 선택해도 main 외에는 배포하지 않는다.
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux, ARM64]
+    # 파이에서 첫 빌드(npm·pip 설치, 프론트 빌드)는 오래 걸리므로 넉넉히 둔다.
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Pre-check deploy folder
+        run: |
+          set -euo pipefail
+          guide="README의 '자동 배포 (GitHub Actions self-hosted runner)' 절에 따라 최초 1회 수동으로 준비하세요."
+          if [ ! -d "$APP_DIR" ]; then
+            echo "::error::배포 폴더가 없습니다: $APP_DIR. $guide"
+            exit 1
+          fi
+          if [ ! -d "$APP_DIR/.git" ]; then
+            echo "::error::배포 폴더가 Git 저장소가 아닙니다: $APP_DIR. $guide"
+            exit 1
+          fi
+          if [ ! -f "$APP_DIR/docker-compose.yml" ]; then
+            echo "::error::docker-compose.yml이 없습니다: $APP_DIR. $guide"
+            exit 1
+          fi
+          cd "$APP_DIR"
+          # 추적 파일의 로컬 변경만 검사한다(.env, *.db 같은 무시 파일·미추적 파일은 영향 없음).
+          changes="$(git status --porcelain --untracked-files=no)"
+          if [ -n "$changes" ]; then
+            echo "::error::배포 폴더에 커밋되지 않은 로컬 변경이 있어 덮어쓰지 않고 중단합니다. 파이에서 변경을 정리한 뒤 다시 실행하세요."
+            echo "$changes"
+            exit 1
+          fi
+          echo "현재 커밋: $(git rev-parse HEAD)"
+
+      - name: Update source (fast-forward only)
+        run: |
+          set -euo pipefail
+          cd "$APP_DIR"
+          git fetch --no-tags origin main
+          git checkout -q main
+          git merge --ff-only origin/main
+          deployed="$(git rev-parse HEAD)"
+          echo "배포 커밋: $deployed ($(git log -1 --format=%s))"
+          if [ "$deployed" = "$GITHUB_SHA" ]; then
+            echo "트리거 커밋과 일치합니다: $GITHUB_SHA"
+          elif git merge-base --is-ancestor "$GITHUB_SHA" "$deployed"; then
+            echo "::warning::트리거 커밋($GITHUB_SHA) 이후 main이 갱신되어 더 최신 커밋($deployed)을 배포합니다."
+          else
+            echo "::error::배포 커밋($deployed)이 트리거 커밋($GITHUB_SHA)을 포함하지 않습니다."
+            exit 1
+          fi
+          echo "DEPLOYED_SHA=$deployed" >> "$GITHUB_ENV"
+
+      - name: Build and start services
+        run: |
+          set -euo pipefail
+          cd "$APP_DIR"
+          if ! docker compose up -d --build --wait --wait-timeout "$WAIT_TIMEOUT"; then
+            echo "::error::docker compose 배포 또는 헬스체크에 실패했습니다."
+            # docker compose config는 환경 변수를 펼쳐 보여 주므로 사용하지 않는다.
+            docker compose ps -a || true
+            docker compose logs --no-color --tail 100 || true
+            exit 1
+          fi
+
+      - name: Prune dangling images
+        run: |
+          set -euo pipefail
+          docker image prune -f
+
+      - name: Write summary
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "## 라즈베리파이 배포 결과 (${{ job.status }})"
+            echo
+            echo "- 트리거: \`$GITHUB_EVENT_NAME\` / 트리거 커밋: \`$GITHUB_SHA\`"
+            echo "- 배포 커밋: \`${DEPLOYED_SHA:-미반영}\`"
+            echo
+            if [ -f "$APP_DIR/docker-compose.yml" ]; then
+              echo '```'
+              (cd "$APP_DIR" && docker compose ps -a) || echo "docker compose ps 실행 실패"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
