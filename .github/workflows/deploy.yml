@@ -95,9 +95,27 @@ jobs:
           cd "$APP_DIR"
           if ! docker compose up -d --build --wait --wait-timeout "$WAIT_TIMEOUT"; then
             echo "::error::docker compose 배포 또는 헬스체크에 실패했습니다."
-            # docker compose config는 환경 변수를 펼쳐 보여 주므로 사용하지 않는다.
+            # 공개 저장소라 Actions 로그는 누구나 볼 수 있다. 공개 로그에는 서비스 상태(ps)만 남기고,
+            # 컨테이너 로그는 파이의 파일로만 저장한다. docker compose config도 환경 변수를 펼치므로 쓰지 않는다.
             docker compose ps -a || true
-            docker compose logs --no-color --tail 100 || true
+            log_dir="$HOME/deploy-logs"
+            log_file="$log_dir/$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD).log"
+            # 파일을 600 권한으로 먼저 만든 뒤 내용을 쓴다(디렉터리는 700).
+            if (umask 077 && mkdir -p "$log_dir" && chmod 700 "$log_dir" \
+                && touch "$log_file" && chmod 600 "$log_file"); then
+              {
+                docker compose ps -a
+                echo
+                docker compose logs --no-color --timestamps --tail 500
+              } >> "$log_file" 2>&1 || true
+              echo "컨테이너 로그는 공개 로그에 출력하지 않고 러너 호스트에 저장했습니다: $log_file"
+            else
+              echo "::warning::컨테이너 로그 파일 저장에 실패했습니다. 파이에서 'docker compose logs'로 확인하세요."
+            fi
+            # 최근 20개 로그만 남긴다. 파일명이 UTC 타임스탬프로 시작해 이름순 정렬이 시간순이다.
+            # 정리 실패는 배포 결과에 영향을 주지 않는다.
+            find "$log_dir" -maxdepth 1 -type f -name '*.log' 2>/dev/null \
+              | sort -r | tail -n +21 | xargs -r rm -f -- || true
             exit 1
           fi
 

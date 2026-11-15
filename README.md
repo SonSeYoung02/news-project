@@ -188,8 +188,9 @@ docker compose start crawler backend
   ```
 
 - **동작 조건**: 배포 폴더의 추적 파일에 로컬 변경이 있으면 덮어쓰지 않고 실패합니다. `.env`, `*.db` 같은 Git 무시 파일은 영향을 주지 않습니다. 배포 폴더 경로는 워크플로의 `env.APP_DIR`에서 바꿉니다.
+- **실패 로그**: 배포가 실패하면 컨테이너 로그는 파이의 `~/deploy-logs/`에 저장되며(최근 20개 유지, 권한 600) 공개된 Actions 로그에는 출력하지 않습니다. Actions에는 서비스 상태(`docker compose ps -a`)와 로그 파일 경로만 남습니다.
 - **수동 실행**: GitHub 저장소의 **Actions → Deploy (Raspberry Pi) → Run workflow**에서 브랜치 `main`을 선택해 실행합니다.
-- **보안 주의**: 공개 저장소이므로 이 워크플로는 `main` push와 수동 실행에서만 동작하며 `pull_request` 트리거를 쓰지 않습니다. **Settings → Actions → General → Fork pull request workflows from outside collaborators**를 "Require approval for all external contributors"로 설정해 외부 기여자 코드가 러너에서 실행되지 않게 합니다.
+- **보안 주의**: 공개 저장소이므로 이 워크플로는 `main` push와 수동 실행에서만 동작하며 `pull_request` 트리거를 쓰지 않습니다. 다만 포크 PR은 자기 브랜치의 워크플로 파일에서 `runs-on: self-hosted`를 지정해 이 러너를 쓸 수 있으므로, 다음 승인 설정이 필수입니다. **Settings → Actions → General → Fork pull request workflows from outside collaborators**를 "Require approval for all external contributors"로 설정해 외부 기여자 코드가 러너에서 실행되지 않게 합니다.
 
 ---
 
