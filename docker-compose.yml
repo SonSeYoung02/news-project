@@ -1,0 +1,53 @@
+# 라즈베리파이(ARM64) 등에서 `docker compose up -d --build`로 실행한다.
+# 외부에는 frontend 포트 하나만 노출하고, backend·crawler는 내부 네트워크에서만 동작한다.
+
+name: news-project
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  crawler:
+    build: ./news-crawling
+    image: news-crawler:latest
+    env_file:
+      - path: ./news-crawling/.env
+        required: false
+    environment:
+      DB_PATH: /data/news.db
+      TZ: Asia/Seoul
+    volumes:
+      - news-data:/data
+    restart: unless-stopped
+    logging: *default-logging
+
+  backend:
+    build: ./news-viewer/backend
+    image: news-backend:latest
+    environment:
+      DB_PATH: /data/news.db
+      TZ: Asia/Seoul
+    volumes:
+      - news-data:/data
+    depends_on:
+      crawler:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *default-logging
+
+  frontend:
+    build: ./news-viewer/frontend
+    image: news-frontend:latest
+    ports:
+      - "${WEB_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *default-logging
+
+volumes:
+  news-data:

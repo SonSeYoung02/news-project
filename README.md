@@ -147,6 +147,33 @@ npm run dev
 
 Windows에서는 저장소 루트에서 `.\start.ps1`을 실행하면 백엔드와 웹 뷰어가 각각 새 창에서 시작됩니다. `.\start.ps1 -Crawl`을 쓰면 수집도 함께 1회 실행합니다.
 
+### Docker로 실행 (라즈베리파이 등)
+
+수집기(`crawler`)·API(`backend`)·웹 뷰어(`frontend`, nginx)를 컨테이너로 띄웁니다. 공식 multi-arch 이미지를 쓰므로 Raspberry Pi OS 64bit(ARM64)에서도 그대로 빌드됩니다. 외부에는 웹 뷰어 포트 하나만 열리고, `news.db`는 `news-data` 볼륨에 저장됩니다.
+
+- **전제**: Docker Engine과 Compose 플러그인(`docker compose`, v2.24 이상)
+- **설정**: `news-crawling/.env`에 `GEMINI_API_KEY=<발급받은 키>`를 적습니다. 파일이 없어도 실행되지만 번역은 건너뜁니다.
+
+```bash
+docker compose up -d --build        # 빌드 후 백그라운드 실행 → http://<장비 IP>/
+WEB_PORT=8080 docker compose up -d  # 80 포트가 사용 중이면 다른 포트로 노출
+docker compose logs -f crawler      # 로그 확인 (backend, frontend도 동일)
+docker compose run --rm crawler python main.py --run   # 지금 1회 수집
+docker compose down                 # 중지 (데이터 볼륨은 유지, -v를 붙이면 삭제)
+```
+
+`crawler`는 매일 01:00(한국 시간)에 수집·번역을 실행합니다. 데이터베이스 백업과 복원은 다음과 같습니다.
+
+```bash
+# 백업: 현재 폴더에 news.db 복사
+docker compose cp crawler:/data/news.db ./news.db.bak
+# 복원: 서비스를 멈춘 뒤 볼륨에 덮어쓰기
+docker compose stop crawler backend
+docker run --rm -v news-project_news-data:/data -v "$PWD":/backup alpine \
+  sh -c "cp /backup/news.db.bak /data/news.db && chown 1000:1000 /data/news.db"
+docker compose start crawler backend
+```
+
 ---
 
 ## 상세 문서
