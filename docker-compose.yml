@@ -1,6 +1,8 @@
-# 라즈베리파이(ARM64) 등에서 `docker compose up -d --build`로 실행한다.
-# 상시 서비스는 nginx·backend·crawler이며 외부에는 nginx 포트 하나만 노출한다.
-# frontend는 화면 빌드 전용 이미지로, nginx 빌드에만 쓰이고 컨테이너로 실행하지 않는다.
+# core 스택: 상시 실행하는 엣지 프록시(proxy)와 수집기(crawler), 데이터 볼륨, 공유 네트워크.
+# 화면(web)·API(backend)는 docker-compose.app.yml로 색상별(news-blue / news-green) 프로젝트에서 실행하고,
+# scripts/deploy.sh가 블루-그린 방식으로 교체한다. 배포·로컬 실행 모두 스크립트 사용을 권장한다(README 참고).
+#
+# 프로젝트 이름은 기존 볼륨(news-project_news-data)을 그대로 쓰기 위해 news-project로 유지한다.
 
 name: news-project
 
@@ -11,6 +13,8 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
+  # 블루-그린에서 제외한 단일 인스턴스. 두 개가 동시에 돌면 01:00 수집이 중복되고
+  # Gemini 할당량을 두 배로 쓰므로, 교체 여부는 scripts/deploy.sh가 수집 시간대를 보고 결정한다.
   crawler:
     build: ./news-crawling
     image: news-crawler:latest
@@ -25,40 +29,30 @@ services:
     restart: unless-stopped
     logging: *default-logging
 
-  backend:
-    build: ./news-viewer/backend
-    image: news-backend:latest
-    environment:
-      DB_PATH: /data/news.db
-      TZ: Asia/Seoul
-    volumes:
-      - news-data:/data
-    depends_on:
-      crawler:
-        condition: service_healthy
-    restart: unless-stopped
-    logging: *default-logging
-
-  # 화면 빌드 전용. scale: 0이라 컨테이너를 만들지 않고, nginx 빌드가
-  # additional_contexts(service:frontend)로 이 이미지를 참조할 때 먼저 빌드된다.
-  frontend:
-    build: ./news-viewer/frontend
-    image: news-frontend:latest
-    scale: 0
-
-  nginx:
-    build:
-      context: ./nginx
-      additional_contexts:
-        frontend-dist: service:frontend
-    image: news-nginx:latest
+  # 외부에 노출하는 유일한 포트. 설정 폴더와 활성 색 파일을 마운트하므로 설정 변경·색 전환은
+  # 컨테이너 재생성 없이 reload로 반영된다(nginx/proxy/conf.d/default.conf 참고).
+  proxy:
+    image: nginx:alpine
     ports:
       - "${WEB_PORT:-80}:80"
-    depends_on:
-      backend:
-        condition: service_healthy
+    volumes:
+      - ./nginx/proxy/conf.d:/etc/nginx/conf.d:ro
+      - ./.deploy/proxy:/etc/nginx/bluegreen:ro
+    networks:
+      - edge
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
     restart: unless-stopped
     logging: *default-logging
 
 volumes:
   news-data:
+
+networks:
+  # 색상별 앱 스택이 external로 참여하는 공유 네트워크. proxy는 web-<색>, backend-<색> alias로 찾는다.
+  edge:
+    name: news-edge

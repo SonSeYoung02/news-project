@@ -1,0 +1,56 @@
+# 색상별 앱 스택(web + backend). 항상 한 쌍으로 기동·전환해 화면과 API 계약을 맞춘다.
+# scripts/deploy.sh가 DEPLOY_COLOR와 프로젝트 이름(-p news-blue / news-green)을 지정해 실행한다.
+#   DEPLOY_COLOR=green docker compose -p news-green -f docker-compose.app.yml up -d --build --wait
+# 공유 네트워크(news-edge)와 데이터 볼륨(news-project_news-data)은 core 스택(docker-compose.yml)이 만든다.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  backend:
+    build: ./news-viewer/backend
+    image: news-backend:${DEPLOY_COLOR:?DEPLOY_COLOR(blue|green)를 지정하세요}
+    environment:
+      DB_PATH: /data/news.db
+      TZ: Asia/Seoul
+    volumes:
+      - news-data:/data
+    networks:
+      edge:
+        aliases:
+          - backend-${DEPLOY_COLOR:?DEPLOY_COLOR(blue|green)를 지정하세요}
+    restart: unless-stopped
+    logging: *default-logging
+
+  # 화면 빌드 전용. scale: 0이라 컨테이너를 만들지 않고, web 빌드가
+  # additional_contexts(service:frontend)로 이 이미지를 참조할 때 먼저 빌드된다.
+  frontend:
+    build: ./news-viewer/frontend
+    image: news-frontend:${DEPLOY_COLOR:?DEPLOY_COLOR(blue|green)를 지정하세요}
+    scale: 0
+
+  web:
+    build:
+      context: ./nginx/web
+      additional_contexts:
+        frontend-dist: service:frontend
+    image: news-web:${DEPLOY_COLOR:?DEPLOY_COLOR(blue|green)를 지정하세요}
+    networks:
+      edge:
+        aliases:
+          - web-${DEPLOY_COLOR:?DEPLOY_COLOR(blue|green)를 지정하세요}
+    restart: unless-stopped
+    logging: *default-logging
+
+volumes:
+  news-data:
+    external: true
+    name: news-project_news-data
+
+networks:
+  edge:
+    external: true
+    name: news-edge

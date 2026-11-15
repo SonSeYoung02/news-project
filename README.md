@@ -116,6 +116,12 @@ flowchart LR
 ├── news-viewer/
 │   ├── backend/            # 기사 조회 API (FastAPI)
 │   └── frontend/           # 웹 뷰어 (React + Vite)
+├── nginx/
+│   ├── proxy/              # 엣지 프록시 설정 (활성 색으로 / 와 /api/ 전달)
+│   └── web/                # 색상별 화면 정적 파일 서버 이미지
+├── scripts/deploy.sh       # 블루-그린 배포 스크립트
+├── docker-compose.yml      # core 스택 (proxy, crawler, 볼륨, 네트워크)
+├── docker-compose.app.yml  # 색상별 앱 스택 (web, backend)
 └── start.ps1               # Windows 통합 실행 스크립트
 ```
 
@@ -149,34 +155,55 @@ Windows에서는 저장소 루트에서 `.\start.ps1`을 실행하면 백엔드�
 
 ### Docker로 실행 (라즈베리파이 등)
 
-수집기(`crawler`)·API(`backend`)·리버스 프록시(`nginx`)를 컨테이너로 띄웁니다. `frontend`는 화면 빌드 전용 이미지로, 빌드 결과가 `nginx` 이미지에 담기며 컨테이너로 실행되지 않습니다. 공식 multi-arch 이미지를 쓰므로 Raspberry Pi OS 64bit(ARM64)에서도 그대로 빌드됩니다. 외부에는 `nginx` 포트 하나만 열리고(`/api/`는 `backend`로 전달), `news.db`는 `news-data` 볼륨에 저장됩니다.
+블루-그린 방식으로 무중단 교체할 수 있게 두 묶음으로 나눠 실행합니다. 공식 multi-arch 이미지를 쓰므로 Raspberry Pi OS 64bit(ARM64)에서도 그대로 빌드됩니다.
 
-- **전제**: Docker Engine과 Compose 플러그인(`docker compose`, v2.24 이상)
+- **core 스택** (`docker-compose.yml`, 프로젝트 `news-project`): 외부 포트를 유일하게 여는 엣지 프록시 `proxy`(nginx), 수집기 `crawler`, 데이터 볼륨 `news-project_news-data`(`news.db`), 공유 네트워크 `news-edge`.
+- **색상별 앱 스택** (`docker-compose.app.yml`, 프로젝트 `news-blue` / `news-green`): 화면 정적 파일 서버 `web`(빌드 결과가 `nginx/web` 이미지에 담김)과 API `backend`를 한 쌍으로 띄웁니다. `proxy`는 활성 색의 `web-<색>`으로 `/`를, `backend-<색>`으로 `/api/`(접두사 제거)를 보냅니다.
+- **전제**: Docker Engine과 Compose 플러그인(`docker compose`, v2.24 이상), bash
 - **설정**: `news-crawling/.env`에 `GEMINI_API_KEY=<발급받은 키>`를 적습니다. 파일이 없어도 실행되지만 번역은 건너뜁니다.
 
+배포와 로컬 실행 모두 [`scripts/deploy.sh`](scripts/deploy.sh)를 사용합니다. 실행할 때마다 비활성 색을 새로 빌드·기동해 검증한 뒤 `proxy`를 그 색으로 전환(`nginx -t` 후 `nginx -s reload`)하고, 잠시 뒤 이전 색을 내립니다. 새 색이 헬스체크나 검증에 실패하면 이전 색으로 되돌리고 실패로 끝나므로 서비스는 이전 버전으로 계속 유지됩니다.
+
 ```bash
-docker compose up -d --build        # 빌드 후 백그라운드 실행 → http://<장비 IP>/ (화면 변경 반영도 이 명령)
-WEB_PORT=8080 docker compose up -d  # 80 포트가 사용 중이면 다른 포트로 노출
-docker compose logs -f nginx        # 로그 확인 (crawler, backend도 동일)
+bash scripts/deploy.sh                 # 빌드 후 무중단 배포 → http://<장비 IP>/ (최초 실행도 이 명령)
+WEB_PORT=8080 bash scripts/deploy.sh   # 80 포트가 사용 중이면 다른 포트로 노출(루트 .env에 WEB_PORT=8080도 가능)
+bash scripts/deploy.sh status          # 활성 색과 서비스 상태
+docker compose logs -f proxy           # core 로그 확인 (crawler도 동일)
+docker compose -p news-blue logs -f    # 앱 스택 로그 확인 (활성 색 이름 사용)
 docker compose run --rm crawler python main.py --run   # 지금 1회 수집
-docker compose down                 # 중지 (데이터 볼륨은 유지, -v를 붙이면 삭제)
 ```
+
+중지는 앱 스택부터 내린 뒤 core를 내립니다. 데이터 볼륨은 유지되며 `-v`를 붙이면 삭제됩니다.
+
+```bash
+DEPLOY_COLOR=blue  docker compose -p news-blue  -f docker-compose.app.yml down
+DEPLOY_COLOR=green docker compose -p news-green -f docker-compose.app.yml down
+docker compose down
+```
+
+- **활성 색 기록**: `.deploy/proxy/active.conf`(Git 무시)가 활성 색의 유일한 원천이며 `proxy`에 마운트됩니다. 직접 수정하지 마세요. 파일이 없으면 blue로 간주합니다.
+- **proxy 설정 변경**: `nginx/proxy/conf.d/`는 `proxy`에 마운트되어 있어 배포 때 컨테이너 재생성 없이 reload로 반영됩니다. 문법 오류면 전환 전에 배포가 중단되고 기존 설정이 유지됩니다. 포트 매핑처럼 `proxy` 컨테이너 정의 자체가 바뀌면 재생성되어 수 초 중단될 수 있습니다.
+- **crawler**: 블루-그린에서 제외한 단일 인스턴스입니다(두 개가 돌면 수집이 중복되고 Gemini 할당량을 두 배로 씁니다). 이미지나 정의가 바뀐 경우에만 교체하며, 수집 시간대(기본 00:50~06:00 KST, `news-crawling/.env`의 `SCHEDULE_*`·`DEADLINE_*` 값을 따르고 시작 10분 전부터 포함)에는 교체를 보류하고 경고만 남깁니다. 보류된 변경은 시간대가 지난 뒤 배포를 다시 실행하거나 `FORCE_CRAWLER=1 bash scripts/deploy.sh`로 강제해 반영합니다.
+- **기존 구조에서 1회 전환**: 이전 구조(`news-project`의 `nginx`·`backend`)가 남아 있으면 스크립트가 감지해 새 구조로 옮깁니다. 새 blue 스택을 먼저 기동·검증한 뒤 이전 `nginx`·`backend`를 정리하고 `proxy`를 시작하므로 이 순간 1초 안팎 접속이 끊깁니다. `crawler`와 `news-project_news-data` 볼륨은 그대로 유지됩니다.
 
 `crawler`는 매일 01:00(한국 시간)에 수집·번역을 실행합니다. 데이터베이스 백업과 복원은 다음과 같습니다.
 
 ```bash
 # 백업: 현재 폴더에 news.db 복사
 docker compose cp crawler:/data/news.db ./news.db.bak
-# 복원: 서비스를 멈춘 뒤 볼륨에 덮어쓰기
-docker compose stop crawler backend
+# 복원: crawler와 활성 색 backend를 멈춘 뒤 볼륨에 덮어쓰기 (COLOR는 bash scripts/deploy.sh status의 활성 색)
+COLOR=blue
+docker compose stop crawler
+docker compose -p "news-$COLOR" stop backend
 docker run --rm -v news-project_news-data:/data -v "$PWD":/backup alpine \
   sh -c "cp /backup/news.db.bak /data/news.db && chown 1000:1000 /data/news.db"
-docker compose start crawler backend
+docker compose -p "news-$COLOR" start backend
+docker compose start crawler
 ```
 
 #### 자동 배포 (GitHub Actions self-hosted runner)
 
-`main`에 병합(push)되면 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)이 라즈베리파이의 self-hosted runner(`self-hosted`, `linux`, `ARM64`)에서 실행됩니다. 배포 폴더 `/home/ms/news-project`를 `git merge --ff-only`로 갱신한 뒤 `docker compose up -d --build --wait`로 재배포하고, 헬스체크가 통과하지 않으면 실패로 표시합니다. 문서(`*.md`) 등 실행과 무관한 파일만 바뀐 push는 배포하지 않습니다.
+`main`에 병합(push)되면 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)이 라즈베리파이의 self-hosted runner(`self-hosted`, `linux`, `ARM64`)에서 실행됩니다. 배포 폴더 `/home/ms/news-project`를 `git merge --ff-only`로 갱신한 뒤 `bash scripts/deploy.sh`로 블루-그린 배포를 하고, 새 색이 검증에 실패하면 이전 색으로 되돌린 채 실패로 표시합니다. 실행 요약에는 활성 색과 서비스 상태가 남습니다. 문서(`*.md`) 등 실행과 무관한 파일만 바뀐 push는 배포하지 않습니다.
 
 - **최초 1회 준비** (러너 사용자 `ms`로 실행): 배포 폴더는 러너 작업 폴더(`_work`)와 별개입니다.
 
@@ -184,12 +211,13 @@ docker compose start crawler backend
   git clone https://github.com/SonSeYoung02/news-project.git /home/ms/news-project
   cd /home/ms/news-project
   echo "GEMINI_API_KEY=<발급받은 키>" > news-crawling/.env   # 외부 포트를 바꾸려면 루트 .env에 WEB_PORT=8080
-  docker compose up -d --build
+  bash scripts/deploy.sh
   ```
 
 - **동작 조건**: 배포 폴더의 추적 파일에 로컬 변경이 있으면 덮어쓰지 않고 실패합니다. `.env`, `*.db` 같은 Git 무시 파일은 영향을 주지 않습니다. 배포 폴더 경로는 워크플로의 `env.APP_DIR`에서 바꿉니다.
 - **실패 로그**: 배포가 실패하면 컨테이너 로그는 파이의 `~/deploy-logs/`에 저장되며(최근 20개 유지, 권한 600) 공개된 Actions 로그에는 출력하지 않습니다. Actions에는 서비스 상태(`docker compose ps -a`)와 로그 파일 경로만 남습니다.
-- **수동 실행**: GitHub 저장소의 **Actions → Deploy (Raspberry Pi) → Run workflow**에서 브랜치 `main`을 선택해 실행합니다.
+- **수동 실행**: GitHub 저장소의 **Actions → Deploy (Raspberry Pi) → Run workflow**에서 브랜치 `main`을 선택해 실행합니다. 수집 시간대에 보류된 crawler 교체를 바로 반영하려면 `force_crawler`를 선택합니다.
+- **1회 전환 후 실패 시 수동 복구**: 1회 전환 중 이전 구조를 정리한 뒤 실패하면 자동으로 되돌릴 대상이 없습니다. 파이에서 `bash scripts/deploy.sh status`와 `~/deploy-logs/`를 확인한 뒤 원인을 고쳐 다시 배포합니다.
 - **보안 주의**: 공개 저장소이므로 이 워크플로는 `main` push와 수동 실행에서만 동작하며 `pull_request` 트리거를 쓰지 않습니다. 다만 포크 PR은 자기 브랜치의 워크플로 파일에서 `runs-on: self-hosted`를 지정해 이 러너를 쓸 수 있으므로, 다음 승인 설정이 필수입니다. **Settings → Actions → General → Fork pull request workflows from outside collaborators**를 "Require approval for all external contributors"로 설정해 외부 기여자 코드가 러너에서 실행되지 않게 합니다.
 
 ---
