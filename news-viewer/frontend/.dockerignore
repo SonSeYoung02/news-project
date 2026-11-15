@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-ssr
+.vite
+review
+test
+*.log
+.env
+.env.*
+Dockerfile
+.dockerignore
+AGENTS.md
+CLAUDE.md
+**/AGENTS.md
+**/CLAUDE.md
