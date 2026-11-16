@@ -1,7 +1,10 @@
-import { ACCENT, ACCENT_LIGHT, ACCENT_DARK, BORDER, TEXT_MUTED } from "../styles/theme.js";
-import { sharedStyles } from "../styles/shared.js";
+import { ACCENT, ACCENT_LIGHT, ACCENT_DARK, BORDER, TEXT_MUTED } from "../styles/theme.ts";
+import { sharedStyles } from "../styles/shared.ts";
+import type { StyleMap } from "../styles/shared.ts";
+import type { View } from "../features/articles/articleState.ts";
+import type { SourceItem } from "../features/articles/useArticles.ts";
 
-const VIEW_ITEMS = [
+const VIEW_ITEMS: { id: View; label: string }[] = [
   { id: "briefing", label: "오늘의 AI 브리핑" },
   { id: "articles", label: "전체 기사" },
 ];
@@ -102,7 +105,18 @@ const s = {
   compactFilters: { maxHeight: "40dvh", padding: "0 12px 14px" },
   filterControl: { width: "100%", minHeight: 44, border: "none", fontFamily: "inherit", textAlign: "left" },
   filterButton: sharedStyles.filterButton,
-};
+} satisfies StyleMap;
+
+interface SidebarProps {
+  isCompact: boolean;
+  filtersOpen: boolean;
+  onToggleFilters: () => void;
+  view: View;
+  onViewChange: (view: View) => void;
+  sourceItems: SourceItem[];
+  selectedSource: string;
+  onSourceClick: (source: string) => void;
+}
 
 export default function Sidebar({
   isCompact,
@@ -113,7 +127,7 @@ export default function Sidebar({
   sourceItems,
   selectedSource,
   onSourceClick,
-}) {
+}: SidebarProps) {
   return (
     <aside style={{ ...s.sidebar, ...(isCompact ? s.compactSidebar : {}) }}>
       <div style={{ ...s.sidebarHeader, ...(isCompact ? s.compactHeader : {}) }}>

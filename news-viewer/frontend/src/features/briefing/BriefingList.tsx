@@ -1,6 +1,8 @@
-import { BORDER, TEXT_SECONDARY } from "../../styles/theme.js";
-import { sharedStyles } from "../../styles/shared.js";
-import ArticleCard from "../articles/ArticleCard.jsx";
+import { BORDER, TEXT_SECONDARY } from "../../styles/theme.ts";
+import { sharedStyles } from "../../styles/shared.ts";
+import type { StyleMap } from "../../styles/shared.ts";
+import ArticleCard from "../articles/ArticleCard.tsx";
+import type { Article, BriefingResponse } from "../../api/types.ts";
 
 const s = {
   briefingHeader: {
@@ -24,10 +26,26 @@ const s = {
   statusText: sharedStyles.statusText,
   error: sharedStyles.error,
   filterButton: sharedStyles.filterButton,
-};
+} satisfies StyleMap;
+
+interface BriefingListProps {
+  briefing: BriefingResponse | null;
+  briefingLoading: boolean;
+  briefingError: string;
+  onRetry: () => void;
+  selectedId: number | undefined;
+  onSelectArticle: (article: Article) => void;
+}
 
 // 오늘의 AI 브리핑 보기의 목록 영역: 안내·새로고침, 로딩·오류·빈 상태, 브리핑 기사 카드
-export default function BriefingList({ briefing, briefingLoading, briefingError, onRetry, selectedId, onSelectArticle }) {
+export default function BriefingList({
+  briefing,
+  briefingLoading,
+  briefingError,
+  onRetry,
+  selectedId,
+  onSelectArticle,
+}: BriefingListProps) {
   return (
     <>
       <section aria-label="오늘의 AI 브리핑" style={s.briefingHeader}>

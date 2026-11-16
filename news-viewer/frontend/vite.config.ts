@@ -1,7 +1,8 @@
 import { defineConfig } from 'vite'
+import type { ProxyOptions } from 'vite'
 import react from '@vitejs/plugin-react'
 
-const apiProxy = {
+const apiProxy: Record<string, ProxyOptions> = {
   '/api': {
     target: 'http://127.0.0.1:8000',
     changeOrigin: true,

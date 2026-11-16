@@ -35,7 +35,7 @@ uvicorn main:app --reload
 
 밝은 중립 배경의 읽기 중심 뉴스 리더 UI입니다(#22).
 
-- **색상**: 강조색은 녹색 계열(`ACCENT` `#258347`, `ACCENT_DARK` `#1e6837`, `ACCENT_LIGHT` `#edf5ef`)이며 `src/styles/theme.js`에서 관리합니다. 본문·보조 텍스트는 WCAG AA(4.5:1) 이상의 대비를 유지합니다.
+- **색상**: 강조색은 녹색 계열(`ACCENT` `#258347`, `ACCENT_DARK` `#1e6837`, `ACCENT_LIGHT` `#edf5ef`)이며 `src/styles/theme.ts`에서 관리합니다. 본문·보조 텍스트는 WCAG AA(4.5:1) 이상의 대비를 유지합니다.
 - **출처 배지**: 출처별 약어와 색상(`SOURCE_MARKS`)으로 목록과 상세 화면에서 출처를 구분합니다. 새 출처를 추가하면 `SOURCE_FILTERS`와 `SOURCE_MARKS`를 함께 갱신합니다.
 - **정보 위계**: 출처·카테고리·날짜 → 제목 → 요약 → 태그 순으로 배치하고, 카드 테두리·그림자 대신 구분선과 선택 강조로 목록을 구분합니다.
 - **사이드바**: 보기·카테고리·출처 항목에 기사 수 배지를 표시합니다.
@@ -69,16 +69,20 @@ npm run preview -- --host
 ## 빌드
 
 ```bash
-npm run build            # dist/ 디렉토리에 프로덕션 번들 생성
+npm run build            # tsc --noEmit 타입 검사 후 dist/ 디렉토리에 프로덕션 번들 생성
 npm run preview          # 프로덕션 빌드 로컬 미리보기 (기본 127.0.0.1)
 npm run preview -- --host  # 프로덕션 빌드 미리보기 (명시적 LAN 바인딩)
+npm test                 # 기사 상태 리듀서·본문 렌더링 회귀 테스트
 ```
+
+`npm test`의 리듀서 테스트는 Node의 타입 제거(type stripping) 기능으로 `src/features/articles/articleState.ts`를 직접 불러오므로 Node 22.18 이상이 필요합니다.
 
 ## 기술 스택
 
 | 항목 | 내용 |
 |------|------|
 | 프레임워크 | React 18 |
+| 언어 | TypeScript (strict) |
 | 번들러 | Vite 8 |
 | 스타일 | 인라인 스타일 (CSS-in-JS 없음) |
 | API | 같은 출처 `/api` → FastAPI `http://127.0.0.1:8000` |
@@ -88,18 +92,21 @@ npm run preview -- --host  # 프로덕션 빌드 미리보기 (명시적 LAN 바
 ```
 frontend/
 ├── index.html          # HTML 진입점 (#app 마운트)
-├── vite.config.js      # Vite + React 플러그인 설정
+├── vite.config.ts      # Vite + React 플러그인 설정
+├── tsconfig.json       # TypeScript 설정 (strict, noEmit)
 ├── src/
-│   ├── main.jsx            # ReactDOM.createRoot 부트스트랩
-│   ├── App.jsx             # 레이아웃 조립, 보기(브리핑/기사) 전환, 자동 선택
-│   ├── api/client.js       # API 기본 경로(/api), fetchJSON
+│   ├── main.tsx            # ReactDOM.createRoot 부트스트랩
+│   ├── App.tsx             # 레이아웃 조립, 보기(브리핑/기사) 전환, 자동 선택
+│   ├── vite-env.d.ts       # Vite 클라이언트 타입 참조
+│   ├── api/client.ts       # API 기본 경로(/api), fetchJSON<T>
+│   ├── api/types.ts        # 백엔드 응답 타입 (기사·브리핑·출처)
 │   ├── features/
-│   │   ├── articles/       # 기사 피드: 목록·카드·상세·본문·페이지네이션, 상태 리듀서, useArticles
+│   │   ├── articles/       # 기사 피드: 목록·카드·상세·본문·페이지네이션, 상태 리듀서(액션 타입), useArticles
 │   │   └── briefing/       # 오늘의 AI 브리핑: 목록, useBriefing
 │   ├── layout/             # Sidebar, Topbar(+ 모바일 읽기 헤더)
 │   ├── components/         # 여러 기능이 공유하는 UI (SourceMark)
 │   ├── hooks/              # 범용 hook (useMediaQuery)
-│   ├── styles/             # theme.js(색상 토큰), shared.js(공용 인라인 스타일), index.css(전역 스타일)
+│   ├── styles/             # theme.ts(색상 토큰), shared.ts(공용 인라인 스타일), index.css(전역 스타일)
 │   └── utils/              # formatDate
 ├── test/
 │   ├── empty-state.test.mjs   # 기사 상태 리듀서 회귀 테스트 (node --test)
@@ -111,7 +118,8 @@ frontend/
 
 ## 참고
 
-- `@vitejs/plugin-react` 6.x는 Vite 8을 기본 지원합니다. `.npmrc`의 `legacy-peer-deps=true`는 JavaScript 프로젝트에서 `react-markdown`의 `@types/react` peer dependency가 불필요하게 자동 설치되는 것을 막기 위해 유지합니다.
+- `@vitejs/plugin-react` 6.x는 Vite 8을 기본 지원합니다. `@types/react`·`@types/react-dom`은 devDependency로 직접 관리하며, `.npmrc`의 `legacy-peer-deps=true`는 peer dependency 자동 설치를 막기 위해 유지합니다.
+- 타입 검사는 `tsc --noEmit`만 수행하고, 변환·번들은 Vite가 담당합니다.
 - 브라우저는 프론트와 같은 출처의 `/api`만 호출하므로 LAN 접속을 위해 백엔드 CORS 허용 목록을 넓힐 필요가 없습니다.
 
 ## 오늘의 AI 브리핑

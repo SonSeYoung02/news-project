@@ -1,4 +1,8 @@
-import { ACCENT_DARK, BORDER, TEXT_MUTED } from "./theme.js";
+import type { CSSProperties } from "react";
+import { ACCENT_DARK, BORDER, TEXT_MUTED } from "./theme.ts";
+
+// 컴포넌트 파일 상단의 인라인 스타일 `s` 객체 타입. 동적 스타일은 boolean 하나를 받는 함수로 표현한다.
+export type StyleMap = Record<string, CSSProperties | ((flag: boolean) => CSSProperties)>;
 
 // 여러 화면 파일이 함께 사용하는 인라인 스타일
 export const sharedStyles = {
@@ -37,4 +41,4 @@ export const sharedStyles = {
     borderRadius: 14,
     fontWeight: 500,
   },
-};
+} satisfies Record<string, CSSProperties>;

@@ -1,5 +1,9 @@
-import { ACCENT, ACCENT_DARK, BORDER, TEXT_SECONDARY, TEXT_MUTED } from "../styles/theme.js";
-import { sharedStyles } from "../styles/shared.js";
+import { ACCENT, ACCENT_DARK, BORDER, TEXT_SECONDARY, TEXT_MUTED } from "../styles/theme.ts";
+import { sharedStyles } from "../styles/shared.ts";
+import type { StyleMap } from "../styles/shared.ts";
+import type { FormEvent } from "react";
+import type { Article } from "../api/types.ts";
+import type { View } from "../features/articles/articleState.ts";
 
 const s = {
   topbar: {
@@ -94,10 +98,15 @@ const s = {
     flexShrink: 0,
   },
   touchButton: sharedStyles.touchButton,
-};
+} satisfies StyleMap;
 
 // 좁은 화면에서 기사를 읽는 동안 상단에 표시하는 목록 복귀 헤더
-export function ReadingHeader({ selected, onBack }) {
+interface ReadingHeaderProps {
+  selected: Article;
+  onBack: () => void;
+}
+
+export function ReadingHeader({ selected, onBack }: ReadingHeaderProps) {
   return (
     <header style={s.compactReadingHeader}>
       <button
@@ -115,7 +124,25 @@ export function ReadingHeader({ selected, onBack }) {
   );
 }
 
-export default function Topbar({ isCompact, selected, view, selectedSource, query, onQueryChange, onSearchSubmit }) {
+interface TopbarProps {
+  isCompact: boolean;
+  selected: Article | null;
+  view: View;
+  selectedSource: string;
+  query: string;
+  onQueryChange: (query: string) => void;
+  onSearchSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}
+
+export default function Topbar({
+  isCompact,
+  selected,
+  view,
+  selectedSource,
+  query,
+  onQueryChange,
+  onSearchSubmit,
+}: TopbarProps) {
   return (
     <div style={{ ...s.topbar, ...(isCompact ? s.compactTopbar : {}), ...(isCompact && selected ? { display: "none" } : {}) }}>
       {!isCompact && (
