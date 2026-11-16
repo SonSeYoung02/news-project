@@ -624,11 +624,9 @@ export default function App() {
   const [briefingError, setBriefingError] = useState("");
   const [briefingRetry, setBriefingRetry] = useState(0);
 
-  const [categories, setCategories] = useState([]);
   const [sources, setSources] = useState([]);
   const [totalAll, setTotalAll] = useState(0);
   const [page, setPage] = useState(1);
-  const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedSource, setSelectedSource] = useState("");
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
@@ -719,12 +717,10 @@ export default function App() {
   useEffect(() => {
     const controller = new AbortController();
     Promise.all([
-      fetchJSON("/categories", controller.signal),
       fetchJSON("/sources", controller.signal),
       fetchJSON("/articles?page=1&size=1", controller.signal),
     ])
-      .then(([categoryData, sourceData, articleData]) => {
-        setCategories(categoryData);
+      .then(([sourceData, articleData]) => {
         setSources(sourceData);
         setTotalAll(articleData.total);
       })
@@ -754,7 +750,6 @@ export default function App() {
     activeReqRef.current = currentReqId;
 
     const params = new URLSearchParams({ page, size: SIZE });
-    if (selectedCategory) params.set("category", selectedCategory);
     if (selectedSource) params.set("source", selectedSource);
     if (search) params.set("q", search);
 
@@ -780,7 +775,7 @@ export default function App() {
       });
 
     return () => controller.abort();
-  }, [page, selectedCategory, selectedSource, search, fetchRev]);
+  }, [page, selectedSource, search, fetchRev]);
 
   useEffect(() => {
     if (view === "briefing" && !isCompact && !briefingLoading && !selected && (briefing?.articles || []).length > 0) {
@@ -795,7 +790,6 @@ export default function App() {
   }, [view, isCompact, loading, selected, articles]);
 
   const totalPages = Math.ceil(total / SIZE);
-  const categoryItems = categories;
   const sourceItems = [
     { source: "", count: totalAll },
     ...SOURCE_FILTERS.map((source) => ({
@@ -803,16 +797,6 @@ export default function App() {
       count: sources.find((item) => item.source === source)?.count ?? 0,
     })),
   ];
-
-  const handleCategoryClick = (cat) => {
-    setView("articles");
-    setFiltersOpen(false);
-    triggerFetch();
-    setSelectedCategory((prev) => (prev === cat ? "" : cat));
-    setPage(1);
-    listScrollPos.current = 0;
-    if (listRef.current) listRef.current.scrollTop = 0;
-  };
 
   const handleSourceClick = (src) => {
     setView("articles");
@@ -827,7 +811,6 @@ export default function App() {
   const handleResetFilters = () => {
     setView("articles");
     triggerFetch();
-    setSelectedCategory("");
     setSelectedSource("");
     setPage(1);
     listScrollPos.current = 0;
@@ -908,20 +891,6 @@ export default function App() {
             </button>
           ))}
 
-          <div style={{ ...s.sectionLabel, marginTop: 12 }}>카테고리</div>
-          {categoryItems.map((c) => (
-            <button
-              type="button"
-              key={c.major_category}
-              aria-pressed={selectedCategory === c.major_category}
-              onClick={() => handleCategoryClick(c.major_category)}
-              style={{ ...s.filterItem(selectedCategory === c.major_category), ...s.filterControl }}
-            >
-              <span>{c.major_category}</span>
-              <span style={s.filterCount(selectedCategory === c.major_category)}>{c.count}</span>
-            </button>
-          ))}
-
           <div style={s.sectionLabel}>출처</div>
           {sourceItems.map((src) => (
             <button
@@ -962,10 +931,9 @@ export default function App() {
           {!isCompact && (
             <div style={s.topbarTitle}>
               <span>{view === "briefing" ? "오늘의 AI 브리핑" : "기사 피드"}</span>
-              {view === "articles" && (selectedCategory || selectedSource) && (
+              {view === "articles" && selectedSource && (
                 <span style={{ fontSize: 12, color: TEXT_MUTED, fontWeight: 400 }}>
-                  {selectedCategory && `· ${selectedCategory}`}
-                  {selectedSource && `· ${selectedSource}`}
+                  {`· ${selectedSource}`}
                 </span>
               )}
             </div>
@@ -1040,31 +1008,18 @@ export default function App() {
               <div style={s.statusText}>최근 24시간에 수집된 AI 기사가 없습니다.</div>
             )}
 
-            {view === "articles" && (selectedCategory || selectedSource) && (
+            {view === "articles" && selectedSource && (
               <div style={s.activeFilterBar} aria-label="활성 필터">
                 <span style={s.activeFilterLabel}>적용된 필터:</span>
-                {selectedCategory && (
-                  <button
-                    type="button"
-                    style={s.activeFilterChip}
-                    onClick={() => handleCategoryClick("")}
-                    aria-label={`카테고리: ${selectedCategory} 필터 해제`}
-                  >
-                    <span>카테고리: {selectedCategory}</span>
-                    <span style={s.activeFilterRemove} aria-hidden="true">✕</span>
-                  </button>
-                )}
-                {selectedSource && (
-                  <button
-                    type="button"
-                    style={s.activeFilterChip}
-                    onClick={() => handleSourceClick("")}
-                    aria-label={`출처: ${selectedSource} 필터 해제`}
-                  >
-                    <span>출처: {selectedSource}</span>
-                    <span style={s.activeFilterRemove} aria-hidden="true">✕</span>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  style={s.activeFilterChip}
+                  onClick={() => handleSourceClick("")}
+                  aria-label={`출처: ${selectedSource} 필터 해제`}
+                >
+                  <span>출처: {selectedSource}</span>
+                  <span style={s.activeFilterRemove} aria-hidden="true">✕</span>
+                </button>
                 <button
                   type="button"
                   style={s.filterResetBtn}
