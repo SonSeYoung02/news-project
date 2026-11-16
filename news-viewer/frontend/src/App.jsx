@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useReducer } from "react";
-import ArticleBody from "./ArticleBody";
-import { articleReducer, initialArticleState } from "./articleState.js";
+import ArticleBody from "./features/articles/ArticleBody.jsx";
+import { articleReducer, initialArticleState } from "./features/articles/articleState.js";
 import { fetchJSON } from "./api/client.js";
 import SourceMark from "./components/SourceMark.jsx";
 import { ACCENT, ACCENT_LIGHT, ACCENT_DARK, BORDER, TEXT_SECONDARY, TEXT_MUTED } from "./styles/theme.js";
