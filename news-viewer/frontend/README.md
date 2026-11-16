@@ -10,7 +10,9 @@ npm install
 npm run dev
 ```
 
-브라우저에서 http://localhost:5173 접속. **백엔드 서버가 먼저 실행되어 있어야 합니다.**
+브라우저에서 http://127.0.0.1:5173 (또는 http://localhost:5173) 접속. **백엔드 서버가 먼저 실행되어 있어야 합니다.**
+
+개발 서버(`npm run dev`)와 빌드 미리보기(`npm run preview`)는 보안상 기본으로 loopback(`127.0.0.1`)에만 바인딩됩니다.
 
 ### 백엔드 실행 (별도 터미널)
 
@@ -40,23 +42,36 @@ uvicorn main:app --reload
 - **키보드 접근성**: `index.css`의 `:focus-visible`로 녹색 포커스 링을 표시합니다.
 - 현재 화면 스크린샷은 `review/issue-22/`에 있습니다.
 
-## 휴대폰에서 접속하기
+## 휴대폰에서 접속하기 (명시적 LAN 실행)
 
-1. PC와 휴대폰을 같은 Wi-Fi에 연결하고 PC에서 백엔드와 `npm run dev`를 실행합니다.
-2. PC의 내부 IPv4 주소를 확인하고 휴대폰에서 `http://<PC의 내부 IP>:5173`에 접속합니다. 휴대폰의 `localhost`는 PC를 가리키지 않습니다.
-3. Vite는 LAN 인터페이스에서 수신하며 `/api` 요청을 PC 내부의 `http://127.0.0.1:8000`으로 전달합니다. 백엔드를 외부 인터페이스에 노출할 필요가 없습니다.
+기본 실행(`npm run dev`, `npm run preview`)은 `127.0.0.1` loopback에만 바인딩되므로 같은 Wi-Fi의 다른 기기에서 접근할 수 없습니다. 휴대폰 등 LAN 기기에서 테스트할 때만 `--host` 플래그로 명시적으로 네트워크 바인딩을 허용하세요.
 
-호스트 방화벽 또는 공유기의 무선 기기 격리 설정이 접속을 막을 수 있습니다. 앱은 방화벽이나 공유기 설정을 자동 변경하지 않습니다. 개발 서버 포트가 사용 중이면 실행을 중단하므로 별도 worktree를 실행할 때는 `npm run dev -- --port 5180`처럼 지정하고 해당 포트로 접속합니다.
+1. PC와 휴대폰을 같은 Wi-Fi에 연결하고 PC에서 백엔드를 실행합니다.
+2. 프론트엔드 디렉터리에서 `--host`를 지정해 명시적으로 LAN 수신 모드로 실행합니다.
+
+```bash
+npm run dev -- --host
+# 개발 포트가 사용 중이거나 별도 worktree를 실행할 때
+npm run dev -- --host --port 5180
+# 프로덕션 빌드 미리보기(preview)를 LAN에서 확인할 때
+npm run preview -- --host
+```
+
+3. PC의 내부 IPv4 주소를 확인하고 휴대폰에서 `http://<PC의 내부 IP>:5173` (미리보기는 `:4173`)에 접속합니다. 휴대폰의 `localhost`는 PC를 가리키지 않습니다.
+4. Vite가 LAN 인터페이스에서 수신하며 `/api` 요청을 PC 내부의 `http://127.0.0.1:8000`으로 전달하므로 백엔드를 외부 인터페이스에 노출할 필요가 없습니다.
+
+> 신뢰할 수 있는 내부 네트워크에서만 `--host`(또는 `--host 0.0.0.0`)를 사용하고 확인이 끝나면 서버를 종료하세요. 호스트 방화벽 또는 공유기의 무선 기기 격리 설정이 접속을 막을 수 있으며, 앱은 방화벽이나 공유기 설정을 자동 변경하지 않습니다. 기본 포트가 사용 중이면 실행을 중단하므로 `--port`로 다른 포트를 지정할 수 있습니다.
 
 ## 운영 배포의 API 연결
 
-프론트엔드는 같은 출처의 `/api`를 호출합니다. 개발 서버와 `npm run preview`에는 프록시가 구성되어 있지만, `dist/`를 정적 호스팅할 때는 웹 서버에서 `/api/*`를 백엔드의 `/*`로 전달하는 리버스 프록시를 별도로 구성해야 합니다. `npm run preview`는 로컬 빌드 확인용이며 운영 서버로 사용하지 않습니다. Cloudflare Tunnel만 연결한다고 API 경로가 자동 구성되지는 않습니다.
+프론트엔드는 같은 출처의 `/api`를 호출합니다. 개발 서버와 `npm run preview`에는 프록시가 구성되어 있지만, `dist/`를 정적 호스팅할 때는 웹 서버에서 `/api/*`를 백엔드의 `/*`로 전달하는 리버스 프록시를 별도로 구성해야 합니다. `npm run preview`는 로컬 빌드 확인용(기본 `127.0.0.1` 바인딩)이며 운영 서버로 사용하지 않습니다. Cloudflare Tunnel만 연결한다고 API 경로가 자동 구성되지는 않습니다.
 
 ## 빌드
 
 ```bash
-npm run build    # dist/ 디렉토리에 프로덕션 번들 생성
-npm run preview  # 프로덕션 빌드 로컬 미리보기
+npm run build            # dist/ 디렉토리에 프로덕션 번들 생성
+npm run preview          # 프로덕션 빌드 로컬 미리보기 (기본 127.0.0.1)
+npm run preview -- --host  # 프로덕션 빌드 미리보기 (명시적 LAN 바인딩)
 ```
 
 ## 기술 스택
@@ -89,7 +104,7 @@ frontend/
 
 ## 참고
 
-- `.npmrc`의 `legacy-peer-deps=true`는 Vite 8과 `@vitejs/plugin-react` 4.x 간 peer dependency 충돌 우회를 위한 설정입니다.
+- `@vitejs/plugin-react` 6.x는 Vite 8을 기본 지원합니다. `.npmrc`의 `legacy-peer-deps=true`는 JavaScript 프로젝트에서 `react-markdown`의 `@types/react` peer dependency가 불필요하게 자동 설치되는 것을 막기 위해 유지합니다.
 - 브라우저는 프론트와 같은 출처의 `/api`만 호출하므로 LAN 접속을 위해 백엔드 CORS 허용 목록을 넓힐 필요가 없습니다.
 
 ## 오늘의 AI 브리핑
