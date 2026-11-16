@@ -1,5 +1,6 @@
 import argparse
 import logging
+import signal
 import sys
 from datetime import datetime
 from typing import Optional
@@ -77,6 +78,7 @@ def run_pipeline(
     4. 묶음 번역 수행 (여러 기사를 Gemini 1회 요청으로 번역, 05:55 마감·일일 20회 한도 제어)
     5. 프로세스 락 해제
     """
+    from crawl_lock import SharedCrawlLock
     from db import acquire_crawl_lock, init_db, release_crawl_lock
     from translation.queue import get_pending_translation_queue
     from translation.rate_limiter import CutoffController, RateLimiter
@@ -85,22 +87,28 @@ def run_pipeline(
 
     logger.info("=== 새벽 뉴스 수집·번역 파이프라인 시작: %s ===", datetime.now().isoformat())
 
-    if not acquire_crawl_lock("nightly_crawl"):
-        logger.warning("이미 다른 크롤러 파이프라인 인스턴스가 실행 중입니다. 실행을 건너뜁니다.")
+    shared_lock = SharedCrawlLock()
+    if not shared_lock.acquire():
+        logger.warning("이미 다른 크롤러 파이프라인 또는 컨테이너 교체가 진행 중입니다. 실행을 건너뜁니다.")
         return {"status": "already_running", "saved": 0, "refreshed": 0, "translated": 0}
-
-    init_db()
-
-    if cutoff_controller is None:
-        cutoff_controller = CutoffController()
-    if rate_limiter is None:
-        rate_limiter = RateLimiter()
 
     status = "completed"
     saved = refreshed = failed_crawl = 0
     translated_count = failed_translation_count = pending_translation_count = 0
+    db_lock_acquired = False
 
     try:
+        init_db()
+        if not acquire_crawl_lock("nightly_crawl"):
+            logger.warning("이미 다른 크롤러 파이프라인 인스턴스가 실행 중입니다. 실행을 건너뜁니다.")
+            return {"status": "already_running", "saved": 0, "refreshed": 0, "translated": 0}
+        db_lock_acquired = True
+
+        if cutoff_controller is None:
+            cutoff_controller = CutoffController()
+        if rate_limiter is None:
+            rate_limiter = RateLimiter()
+
         # 1. 수집 및 원문 즉시 저장
         saved, refreshed, failed_crawl, new_ids = crawl_and_save_articles(sample_articles)
 
@@ -143,7 +151,9 @@ def run_pipeline(
         logger.error("파이프라인 실행 중 예외 발생: %s", e, exc_info=True)
         status = "failed"
     finally:
-        release_crawl_lock("nightly_crawl")
+        if db_lock_acquired:
+            release_crawl_lock("nightly_crawl")
+        shared_lock.release()
 
     logger.info(
         "=== 파이프라인 종료 | 수집: %d (신규 %d, 갱신 %d, 실패 %d) | 번역 완료: %d | 실패: %d | 미완료: %d | 최종 상태: %s ===",
@@ -189,8 +199,15 @@ def run_scheduler() -> None:
         logger.info("스케줄러를 안전하게 종료합니다.")
 
 
+def _handle_sigterm(signum, frame) -> None:
+    raise SystemExit(0)
+
+
 def main() -> None:
     from config import SCHEDULE_HOUR, SCHEDULE_MINUTE
+
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, _handle_sigterm)
 
     parser = argparse.ArgumentParser(
         description="새벽 뉴스 수집 및 Gemini 묶음 번역 파이프라인"

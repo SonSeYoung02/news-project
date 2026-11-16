@@ -111,6 +111,7 @@ flowchart LR
 ├── news-crawling/          # 수집·번역 파이프라인 (Python)
 │   ├── crawlers/           #   출처별 수집기
 │   ├── translation/        #   번역 대기열, 문단 분할, 한도 제어, Gemini 번역
+│   ├── crawl_lock.py       #   호스트·컨테이너 공유 OS 파일 락
 │   ├── db.py               #   SQLite 스키마와 저장 함수
 │   └── main.py             #   실행 진입점 (--run 1회 실행 / --schedule 매일 실행)
 ├── news-viewer/
@@ -119,7 +120,11 @@ flowchart LR
 ├── nginx/
 │   ├── proxy/              # 엣지 프록시 설정 (활성 색으로 / 와 /api/ 전달)
 │   └── web/                # 색상별 화면 정적 파일 서버 이미지
-├── scripts/deploy.sh       # 블루-그린 배포 스크립트
+├── scripts/
+│   ├── deploy.sh           # 블루-그린 배포·크롤러 교체 예약 스크립트
+│   ├── crawler-apply.sh    # 유휴 시 예약 크롤러 자동 반영 스크립트
+│   ├── lib/crawler.sh      # 공유 잠금·상태·복구·정리 공통 라이브러리
+│   └── systemd/            # 1분 주기 자동 반영 systemd unit/timer
 ├── docker-compose.yml      # core 스택 (proxy, crawler, 볼륨, 네트워크)
 ├── docker-compose.app.yml  # 색상별 앱 스택 (web, backend)
 └── start.ps1               # Windows 통합 실행 스크립트
@@ -168,7 +173,9 @@ Windows에서는 저장소 루트에서 `.\start.ps1`을 실행하면 백엔드�
 bash scripts/deploy.sh                                 # 빌드 후 무중단 배포 → http://127.0.0.1/ (기본 loopback 전용)
 WEB_PORT=8080 bash scripts/deploy.sh                   # 80 포트가 사용 중이면 다른 포트로 변경(127.0.0.1:8080)
 WEB_BIND_ADDRESS=0.0.0.0 bash scripts/deploy.sh        # 의도적으로 모든 IPv4 인터페이스에 공개(LAN IP 지정도 가능)
-bash scripts/deploy.sh status                          # 활성 색과 서비스 상태
+bash scripts/deploy.sh status                          # 활성 색, crawler 예약·잠금·실패 상태, 서비스 상태
+bash scripts/crawler-apply.sh status                   # crawler 시간대·잠금·예약·실패 상태만 확인
+bash scripts/crawler-apply.sh apply                    # 대기 중인 crawler 예약을 유휴 시 수동 적용
 docker compose logs -f proxy                           # core 로그 확인 (crawler도 동일)
 docker compose -p news-blue logs -f                    # 앱 스택 로그 확인 (활성 색 이름 사용)
 docker compose run --rm crawler python main.py --run   # 지금 1회 수집
@@ -184,7 +191,10 @@ docker compose down
 
 - **활성 색 기록**: `.deploy/proxy/active.conf`(Git 무시)가 활성 색의 유일한 원천이며 `proxy`에 마운트됩니다. 직접 수정하지 마세요. 파일이 없으면 blue로 간주합니다.
 - **proxy 설정 변경**: `nginx/proxy/conf.d/`는 `proxy`에 마운트되어 있어 배포 때 컨테이너 재생성 없이 reload로 반영됩니다. 문법 오류면 전환 전에 배포가 중단되고 기존 설정이 유지됩니다. 포트 매핑처럼 `proxy` 컨테이너 정의 자체가 바뀌면 재생성되어 수 초 중단될 수 있습니다.
-- **crawler**: 블루-그린에서 제외한 단일 인스턴스입니다(두 개가 돌면 수집이 중복되고 Gemini 할당량을 두 배로 씁니다). 이미지나 정의가 바뀐 경우에만 교체하며, 수집 시간대(기본 00:50~06:00 KST, `news-crawling/.env`의 `SCHEDULE_*`·`DEADLINE_*` 값을 따르고 시작 10분 전부터 포함)에는 교체를 보류하고 경고만 남깁니다. 보류된 변경은 시간대가 지난 뒤 배포를 다시 실행하거나 `FORCE_CRAWLER=1 bash scripts/deploy.sh`로 강제해 반영합니다.
+- **crawler**: 블루-그린에서 제외한 단일 인스턴스입니다(두 개가 돌면 수집이 중복되고 Gemini 할당량을 두 배로 씁니다). 배포 시 커밋 SHA 이미지(`news-crawler:sha-<sha>`)를 먼저 빌드해 두고, 이미지나 정의가 바뀐 경우 앱 전환 성공 후 교체를 진행하거나 수집 시간대(기본 00:50~06:00 KST, `news-crawling/.env`의 `SCHEDULE_*`·`DEADLINE_*` 값을 따르고 시작 10분 전부터 포함)면 교체를 예약(`.deploy/crawler-reservation.env`)만 남깁니다. 최신 성공 배포는 대기 중인 예약을 갱신합니다.
+  - **공유 잠금 및 자동 반영**: Python 파이프라인(`main.py`)이 실제 수집·번역·DB 저장 동안 호스트 바인드 마운트(`./.deploy/locks:/run/crawler-lock`)의 `crawl.lock`에 `flock`을 유지합니다. `scripts/crawler-apply.sh`를 1분마다 실행하는 `systemd` 타이머가 크롤러 유휴 시 예약 버전을 적용하며(수집 시작 임박 구간인 `SCHEDULE` 10분 전~2분 후는 제외), 헬스체크 성공 후 해당 예약 ID를 비교해 일치할 때만 삭제합니다.
+  - **실패 복구 및 이미지 보호**: 새 크롤러 헬스체크에 실패하면 이전 이미지로 복구를 시도하고 예약과 실패 상태(`.deploy/crawler-failure.env`)를 보존합니다. 활성·이전 복구·대기 예약·실패 기록 SHA 이미지는 정리(`prune`)에서 보호되며, 공유 잠금을 지원하지 않는 기존 컨테이너에서 최초 전환하는 동안에는 전체 수집 시간대(00:50~06:00 KST) 보호가 그대로 유지됩니다.
+  - **즉시 반영**: 시간대 보류를 건너뛰고 바로 교체하려면 `FORCE_CRAWLER=1 bash scripts/deploy.sh`(또는 `FORCE_APPLY=1 bash scripts/crawler-apply.sh apply`)를 실행합니다(실행 중인 수집·번역 공유 잠금은 항상 준수).
 - **기존 구조에서 1회 전환**: 이전 구조(`news-project`의 `nginx`·`backend`)가 남아 있으면 스크립트가 감지해 새 구조로 옮깁니다. 새 blue 스택을 먼저 기동·검증한 뒤 이전 `nginx`·`backend`를 정리하고 `proxy`를 시작하므로 이 순간 1초 안팎 접속이 끊깁니다. `crawler`와 `news-project_news-data` 볼륨은 그대로 유지됩니다.
 
 `crawler`는 매일 01:00(한국 시간)에 수집·번역을 실행합니다. 데이터베이스 백업과 복원은 다음과 같습니다.
@@ -222,6 +232,23 @@ docker compose start crawler
   echo "GEMINI_API_KEY=<발급받은 키>" > news-crawling/.env   # 바인딩 주소/포트를 바꾸려면 루트 .env에 WEB_BIND_ADDRESS, WEB_PORT 지정
   bash scripts/deploy.sh
   ```
+
+- **보류된 crawler 자동 반영 (`systemd` 타이머 설치 및 갱신)**:
+  수집 시간대에 보류된 크롤러 예약을 수집 종료 후 자동 반영하려면 라즈베리파이 호스트에 `scripts/systemd/`의 unit·timer를 설치합니다(저장소 경로가 `/home/ms/news-project` 또는 사용자 `ms`가 다르면 복사 후 `User`/`WorkingDirectory`/`ExecStart`를 환경에 맞게 수정하세요).
+
+  ```bash
+  sudo cp /home/ms/news-project/scripts/systemd/news-crawler-apply.service /etc/systemd/system/
+  sudo cp /home/ms/news-project/scripts/systemd/news-crawler-apply.timer /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now news-crawler-apply.timer
+
+  # 타이머·최근 실행 로그·예약 상태 확인
+  systemctl status news-crawler-apply.timer
+  journalctl -u news-crawler-apply.service -n 50 --no-pager
+  bash scripts/deploy.sh status
+  ```
+
+  `scripts/systemd/` unit 파일이 변경된 경우에는 위 `sudo cp` → `sudo systemctl daemon-reload` → `sudo systemctl restart news-crawler-apply.timer` 순서로 갱신합니다.
 
 - **동작 조건**: 배포 폴더의 추적 파일에 로컬 변경이 있으면 덮어쓰지 않고 실패합니다. `.env`, `*.db` 같은 Git 무시 파일은 영향을 주지 않습니다. 배포 폴더 경로는 워크플로의 `env.APP_DIR`에서 바꿉니다.
 - **실패 로그**: 배포가 실패하면 컨테이너 로그는 파이의 `~/deploy-logs/`에 저장되며(최근 20개 유지, 권한 600) 공개된 Actions 로그에는 출력하지 않습니다. Actions에는 서비스 상태(`docker compose ps -a`)와 로그 파일 경로만 남습니다.

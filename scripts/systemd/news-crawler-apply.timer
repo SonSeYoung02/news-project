@@ -1,0 +1,11 @@
+[Unit]
+Description=Check and apply deferred news-crawler update every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=5s
+Persistent=false
+Unit=news-crawler-apply.service
+
+[Install]
+WantedBy=timers.target
