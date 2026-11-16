@@ -13,6 +13,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
+COPY app ./app
 COPY main.py .
 
 # 크롤러 이미지와 같은 UID(1000)로 실행해 공유 볼륨의 news.db를 함께 쓸 수 있게 한다.
