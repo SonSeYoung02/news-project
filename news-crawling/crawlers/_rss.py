@@ -7,13 +7,14 @@ from typing import Any
 import httpx
 from bs4 import BeautifulSoup
 
-from config import CRAWL_HEADERS, REQUEST_TIMEOUT
+from config import REQUEST_TIMEOUT
+
+from ._http import create_safe_client, safe_get
 
 
 def fetch_rss(url: str, source_name: str) -> list[dict[str, Any]]:
-    with httpx.Client(headers=CRAWL_HEADERS, follow_redirects=True) as client:
-        resp = client.get(url, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
+    with create_safe_client() as client:
+        resp = safe_get(client, url, timeout=REQUEST_TIMEOUT, expected_kind="xml")
         return _parse(resp.text, source_name, client)
 
 
@@ -46,8 +47,7 @@ def _parse(xml_text: str, source_name: str, client: httpx.Client) -> list[dict[s
 
 def _fetch_article_content(client: httpx.Client, url: str) -> str:
     try:
-        resp = client.get(url, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
+        resp = safe_get(client, url, timeout=REQUEST_TIMEOUT, expected_kind="html")
     except Exception:
         return ""
     return _extract_article_content(resp.text)

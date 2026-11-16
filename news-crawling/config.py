@@ -60,3 +60,9 @@ CRAWL_HEADERS = {
 }
 
 REQUEST_TIMEOUT = 15
+
+# 수집 HTTP 보안·자원 상한 설정
+CRAWL_ALLOWED_PORTS = frozenset({80, 443})
+CRAWL_MAX_REDIRECTS = int(os.environ.get("CRAWL_MAX_REDIRECTS", "5"))
+CRAWL_MAX_RESPONSE_BYTES = int(os.environ.get("CRAWL_MAX_RESPONSE_BYTES", str(1024 * 1024)))
+CRAWL_MAX_RAW_BYTES = int(os.environ.get("CRAWL_MAX_RAW_BYTES", str(1024 * 1024)))

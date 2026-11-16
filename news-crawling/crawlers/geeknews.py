@@ -5,9 +5,10 @@ from typing import Any
 import httpx
 from bs4 import BeautifulSoup
 
-from config import CRAWL_HEADERS, REQUEST_TIMEOUT
+from config import REQUEST_TIMEOUT
 
 from ._html_text import feed_content_to_text
+from ._http import create_safe_client, safe_get
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +28,10 @@ def fetch() -> list[dict[str, Any]]:
 
 
 def _fetch_feed_xml() -> str:
-    with httpx.Client(headers=CRAWL_HEADERS, follow_redirects=True) as client:
+    with create_safe_client() as client:
         for feed_url in (_PRIMARY_FEED, _FALLBACK_FEED):
             try:
-                resp = client.get(feed_url, timeout=REQUEST_TIMEOUT)
-                resp.raise_for_status()
+                resp = safe_get(client, feed_url, timeout=REQUEST_TIMEOUT, expected_kind="xml")
                 if resp.text:
                     return resp.text
             except Exception as e:

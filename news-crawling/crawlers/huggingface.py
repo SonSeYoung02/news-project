@@ -1,13 +1,15 @@
 import logging
+from contextlib import nullcontext
 from datetime import datetime
 from typing import Any
 
 import httpx
 from bs4 import BeautifulSoup
 
-from config import CRAWL_HEADERS, REQUEST_TIMEOUT
+from config import REQUEST_TIMEOUT
 
 from ._html_text import feed_content_to_text
+from ._http import create_safe_client, safe_get
 
 logger = logging.getLogger(__name__)
 
@@ -17,19 +19,21 @@ _PAPERS_URL = "https://huggingface.co/papers"
 
 def fetch() -> list[dict[str, Any]]:
     try:
-        articles = _fetch_blog_feed()
-        if articles:
-            return articles[:10]
-        return _fetch_papers()[:10]
+        with create_safe_client() as client:
+            articles = _fetch_blog_feed(client)
+            if articles:
+                return articles[:10]
+            return _fetch_papers(client)[:10]
     except Exception as e:
         logger.error("Hugging Face 크롤링 실패: %s", e)
         return []
 
 
-def _fetch_blog_feed() -> list[dict[str, Any]]:
+def _fetch_blog_feed(client: httpx.Client | None = None) -> list[dict[str, Any]]:
     try:
-        resp = httpx.get(_BLOG_FEED_URL, headers=CRAWL_HEADERS, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
+        ctx = nullcontext(client) if client is not None else create_safe_client()
+        with ctx as active_client:
+            resp = safe_get(active_client, _BLOG_FEED_URL, timeout=REQUEST_TIMEOUT, expected_kind="xml")
     except Exception as e:
         logger.warning("Hugging Face 블로그 피드 요청 실패: %s", e)
         return []
@@ -70,10 +74,11 @@ def _fetch_blog_feed() -> list[dict[str, Any]]:
     return articles
 
 
-def _fetch_papers() -> list[dict[str, Any]]:
+def _fetch_papers(client: httpx.Client | None = None) -> list[dict[str, Any]]:
     try:
-        resp = httpx.get(_PAPERS_URL, headers=CRAWL_HEADERS, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
+        ctx = nullcontext(client) if client is not None else create_safe_client()
+        with ctx as active_client:
+            resp = safe_get(active_client, _PAPERS_URL, timeout=REQUEST_TIMEOUT, expected_kind="html")
     except Exception as e:
         logger.warning("Hugging Face Papers 요청 실패: %s", e)
         return []
