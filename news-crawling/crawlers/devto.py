@@ -4,7 +4,9 @@ from typing import Any
 
 import httpx
 
-from config import CRAWL_HEADERS, REQUEST_TIMEOUT
+from config import REQUEST_TIMEOUT
+
+from ._http import create_safe_client, safe_get
 
 logger = logging.getLogger(__name__)
 
@@ -18,44 +20,54 @@ _PARAMS = {
 
 def fetch() -> list[dict[str, Any]]:
     try:
-        resp = httpx.get(_API_URL, params=_PARAMS, headers=CRAWL_HEADERS, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        payload = resp.json()
+        with create_safe_client() as client:
+            resp = safe_get(
+                client,
+                _API_URL,
+                params=_PARAMS,
+                timeout=REQUEST_TIMEOUT,
+                expected_kind="json",
+            )
+            payload = resp.json()
+
+            articles = []
+            for item in payload:
+                title = item.get("title", "")
+                url = item.get("url") or item.get("canonical_url")
+                if not title or not url:
+                    continue
+
+                fallback = _short_content(item)
+                article_id = item.get("id")
+                is_valid_id = isinstance(article_id, int) and not isinstance(article_id, bool) and article_id > 0
+                content = _fetch_full_content(client, article_id, fallback) if is_valid_id else fallback
+
+                articles.append({
+                    "url": url,
+                    "source": "dev.to",
+                    "title": title,
+                    "content": content,
+                    "published_at": item.get("published_at") or datetime.now().isoformat(),
+                    "crawled_at": datetime.now().isoformat(),
+                    "major_category": "AI",
+                    "sub_category": "개발",
+                    "tags": item.get("tag_list", [])[:10],
+                    "translate_to_korean": True,
+                })
+            return articles
     except Exception as e:
         logger.error("dev.to API 크롤링 실패: %s", e)
         return []
 
-    articles = []
-    with httpx.Client(headers=CRAWL_HEADERS, timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
-        for item in payload:
-            title = item.get("title", "")
-            url = item.get("url") or item.get("canonical_url")
-            if not title or not url:
-                continue
-
-            fallback = _short_content(item)
-            article_id = item.get("id")
-            content = _fetch_full_content(client, article_id, fallback) if article_id else fallback
-
-            articles.append({
-                "url": url,
-                "source": "dev.to",
-                "title": title,
-                "content": content,
-                "published_at": item.get("published_at") or datetime.now().isoformat(),
-                "crawled_at": datetime.now().isoformat(),
-                "major_category": "AI",
-                "sub_category": "개발",
-                "tags": item.get("tag_list", [])[:10],
-                "translate_to_korean": True,
-            })
-    return articles
-
 
 def _fetch_full_content(client: httpx.Client, article_id: int, fallback: str) -> str:
     try:
-        resp = client.get(f"https://dev.to/api/articles/{article_id}", timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
+        resp = safe_get(
+            client,
+            f"https://dev.to/api/articles/{article_id}",
+            timeout=REQUEST_TIMEOUT,
+            expected_kind="json",
+        )
         data = resp.json()
         body = data.get("body_markdown") or data.get("body_html") or ""
         if body and len(body) > 100:

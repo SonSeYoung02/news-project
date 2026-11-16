@@ -6,7 +6,9 @@ from typing import Any
 import httpx
 from bs4 import BeautifulSoup
 
-from config import CRAWL_HEADERS, REQUEST_TIMEOUT
+from config import REQUEST_TIMEOUT
+
+from ._http import create_safe_client, safe_get
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +28,8 @@ _AI_REGEX = re.compile(
 
 def fetch() -> list[dict[str, Any]]:
     try:
-        resp = httpx.get(_TRENDING_URL, headers=CRAWL_HEADERS, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
+        with create_safe_client() as client:
+            resp = safe_get(client, _TRENDING_URL, timeout=REQUEST_TIMEOUT, expected_kind="html")
         return _parse_trending(resp.text)
     except Exception as e:
         logger.error("GitHub Trending 크롤링 실패: %s", e)

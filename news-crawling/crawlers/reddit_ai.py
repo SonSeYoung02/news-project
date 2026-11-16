@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 from config import CRAWL_HEADERS, REQUEST_TIMEOUT
 
 from ._html_text import feed_content_to_text
+from ._http import create_safe_client, safe_get
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ _REDDIT_HEADERS = {
 def fetch() -> list[dict[str, Any]]:
     articles: list[dict[str, Any]] = []
     try:
-        with httpx.Client(headers=_REDDIT_HEADERS, follow_redirects=True) as client:
+        with create_safe_client(headers=_REDDIT_HEADERS) as client:
             for feed_url in _FEED_URLS:
                 feed_articles = _fetch_feed(client, feed_url)
                 articles.extend(feed_articles)
@@ -39,8 +40,7 @@ def fetch() -> list[dict[str, Any]]:
 
 def _fetch_feed(client: httpx.Client, feed_url: str) -> list[dict[str, Any]]:
     try:
-        resp = client.get(feed_url, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
+        resp = safe_get(client, feed_url, timeout=REQUEST_TIMEOUT, expected_kind="xml")
     except Exception as e:
         logger.warning("Reddit 피드 요청 실패 (%s): %s", feed_url, e)
         return []
