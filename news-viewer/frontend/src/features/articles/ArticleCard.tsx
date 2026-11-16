@@ -1,7 +1,9 @@
-import { ACCENT, ACCENT_DARK, BORDER, TEXT_SECONDARY, TEXT_MUTED } from "../../styles/theme.js";
-import SourceMark from "../../components/SourceMark.jsx";
-import { sharedStyles } from "../../styles/shared.js";
-import { formatDate } from "../../utils/formatDate.js";
+import { ACCENT, ACCENT_DARK, BORDER, TEXT_SECONDARY, TEXT_MUTED } from "../../styles/theme.ts";
+import SourceMark from "../../components/SourceMark.tsx";
+import type { Article } from "../../api/types.ts";
+import { sharedStyles } from "../../styles/shared.ts";
+import type { StyleMap } from "../../styles/shared.ts";
+import { formatDate } from "../../utils/formatDate.ts";
 
 const s = {
   card: (selected) => ({
@@ -61,10 +63,16 @@ const s = {
   },
   tagRow: sharedStyles.tagRow,
   tag: sharedStyles.tag,
-};
+} satisfies StyleMap;
 
 // 기사 목록·브리핑 목록이 함께 사용하는 기사 카드
-export default function ArticleCard({ article: a, selected, onSelect }) {
+interface ArticleCardProps {
+  article: Article;
+  selected: boolean;
+  onSelect: (article: Article) => void;
+}
+
+export default function ArticleCard({ article: a, selected, onSelect }: ArticleCardProps) {
   const previewText = a.summary || a.content;
   return (
     <button

@@ -1,10 +1,19 @@
 import { useEffect, useState } from "react";
-import { fetchJSON } from "../../api/client.js";
+import type { MutableRefObject } from "react";
+import { fetchJSON } from "../../api/client.ts";
+import type { BriefingResponse } from "../../api/types.ts";
+import type { SelectedUpdater, View } from "../articles/articleState.ts";
+
+interface UseBriefingOptions {
+  view: View;
+  setSelected: (articleOrUpdater: SelectedUpdater) => void;
+  isCompactRef: MutableRefObject<boolean>;
+}
 
 // 오늘의 AI 브리핑 로딩 상태. 브리핑 보기로 진입하거나 다시 시도할 때마다 새로 불러오며,
 // 데스크톱이면 첫 브리핑 기사를 선택한다.
-export default function useBriefing({ view, setSelected, isCompactRef }) {
-  const [briefing, setBriefing] = useState(null);
+export default function useBriefing({ view, setSelected, isCompactRef }: UseBriefingOptions) {
+  const [briefing, setBriefing] = useState<BriefingResponse | null>(null);
   const [briefingLoading, setBriefingLoading] = useState(true);
   const [briefingError, setBriefingError] = useState("");
   const [briefingRetry, setBriefingRetry] = useState(0);
@@ -15,7 +24,7 @@ export default function useBriefing({ view, setSelected, isCompactRef }) {
     setSelected(null);
     setBriefingLoading(true);
     setBriefingError("");
-    fetchJSON("/briefing", controller.signal)
+    fetchJSON<BriefingResponse>("/briefing", controller.signal)
       .then((data) => {
         setBriefing(data);
         if (!isCompactRef.current && (data?.articles || []).length > 0) {

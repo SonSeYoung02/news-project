@@ -1,7 +1,9 @@
-import { ACCENT_LIGHT, ACCENT_DARK, BORDER, TEXT_SECONDARY } from "../../styles/theme.js";
-import { sharedStyles } from "../../styles/shared.js";
-import ArticleCard from "./ArticleCard.jsx";
-import Pagination from "./Pagination.jsx";
+import { ACCENT_LIGHT, ACCENT_DARK, BORDER, TEXT_SECONDARY } from "../../styles/theme.ts";
+import { sharedStyles } from "../../styles/shared.ts";
+import type { StyleMap } from "../../styles/shared.ts";
+import ArticleCard from "./ArticleCard.tsx";
+import Pagination from "./Pagination.tsx";
+import type { Article } from "../../api/types.ts";
 
 const s = {
   activeFilterBar: {
@@ -104,7 +106,23 @@ const s = {
   },
   statusText: sharedStyles.statusText,
   touchButton: sharedStyles.touchButton,
-};
+} satisfies StyleMap;
+
+interface ArticleListProps {
+  articles: Article[];
+  loading: boolean;
+  error: string;
+  search: string;
+  selectedSource: string;
+  selectedId: number | undefined;
+  onSelectArticle: (article: Article) => void;
+  onRemoveSource: () => void;
+  onResetFilters: () => void;
+  onResetSearch: () => void;
+  page: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}
 
 // 전체 기사 보기의 목록 영역: 적용된 필터, 로딩·빈 결과 상태, 기사 카드, 페이지 이동
 export default function ArticleList({
@@ -121,7 +139,7 @@ export default function ArticleList({
   page,
   totalPages,
   onPageChange,
-}) {
+}: ArticleListProps) {
   return (
     <>
       {selectedSource && (

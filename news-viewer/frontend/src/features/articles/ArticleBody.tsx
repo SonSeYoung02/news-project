@@ -1,23 +1,26 @@
 import React from "react";
+import type { CSSProperties } from "react";
 import ReactMarkdown from "react-markdown";
+import type { Components } from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import type { StyleMap } from "../../styles/shared.ts";
 
 const SAFE_PROTOCOLS = /^(https?|mailto|tel):/i;
 
-export function isSafeUrl(url) {
+export function isSafeUrl(url: string | null | undefined): boolean {
   if (!url) return false;
   const trimmed = url.trim();
   if (trimmed.startsWith("/") || trimmed.startsWith("#")) return true;
   return SAFE_PROTOCOLS.test(trimmed);
 }
 
-export function safeUrlTransform(url) {
+export function safeUrlTransform(url: string): string {
   if (isSafeUrl(url)) return url;
   return "";
 }
 
-export const cleanArticleText = (text = "") => {
+export const cleanArticleText = (text: string | null | undefined = ""): string => {
   if (!text) return "";
   const lines = text.split(/\r?\n/);
   const filtered = lines.filter((line) => !line.includes("광고"));
@@ -206,12 +209,22 @@ const s = {
     color: "inherit",
     whiteSpace: "normal",
   },
-};
+} satisfies StyleMap;
 
-export default function ArticleBody({ content, style }) {
+interface ArticleBodyProps {
+  content: string | null | undefined;
+  style?: CSSProperties;
+}
+
+// pre 렌더러가 자식 code 요소에 전달하는 블록 코드 표시
+interface CodeBlockFlag {
+  isBlock?: boolean;
+}
+
+export default function ArticleBody({ content, style }: ArticleBodyProps) {
   const cleaned = cleanArticleText(content);
 
-  const containerStyle = {
+  const containerStyle: CSSProperties = {
     ...s.container,
     ...style,
     whiteSpace: "normal",
@@ -225,21 +238,21 @@ export default function ArticleBody({ content, style }) {
     );
   }
 
-  const pStyle = {
+  const pStyle: CSSProperties = {
     ...s.p,
     ...(style?.fontSize ? { fontSize: style.fontSize } : {}),
     ...(style?.lineHeight ? { lineHeight: style.lineHeight } : {}),
     ...(style?.color ? { color: style.color } : {}),
   };
 
-  const liStyle = {
+  const liStyle: CSSProperties = {
     ...s.li,
     ...(style?.fontSize ? { fontSize: style.fontSize } : {}),
     ...(style?.lineHeight ? { lineHeight: style.lineHeight } : {}),
     ...(style?.color ? { color: style.color } : {}),
   };
 
-  const components = {
+  const components: Components = {
     h1: ({ node, children, ...props }) => <h1 style={s.h1} {...props}>{children}</h1>,
     h2: ({ node, children, ...props }) => <h2 style={s.h2} {...props}>{children}</h2>,
     h3: ({ node, children, ...props }) => <h3 style={s.h3} {...props}>{children}</h3>,
@@ -257,12 +270,13 @@ export default function ArticleBody({ content, style }) {
     ),
     pre: ({ node, children, ...props }) => (
       <pre style={s.pre} {...props}>
-        {React.isValidElement(children)
+        {React.isValidElement<CodeBlockFlag>(children)
           ? React.cloneElement(children, { isBlock: true })
           : children}
       </pre>
     ),
-    code: ({ node, className, isBlock, children, ...props }) => {
+    code: ({ node, className, children, ...rest }) => {
+      const { isBlock, ...props } = rest as typeof rest & CodeBlockFlag;
       const isCodeBlock = isBlock || Boolean(className);
       return (
         <code

@@ -1,4 +1,35 @@
-export const initialArticleState = {
+import type { Article } from "../../api/types.ts";
+
+// 화면 보기: 오늘의 AI 브리핑 / 전체 기사
+export type View = "briefing" | "articles";
+
+export interface ArticleState {
+  articles: Article[];
+  total: number;
+  loading: boolean;
+  error: string;
+  selected: Article | null;
+  requestId: number;
+}
+
+// setSelected 계약: 기사 객체(또는 null) 또는 이전 선택을 받는 갱신 함수
+export type SelectedUpdater = Article | null | ((prev: Article | null) => Article | null);
+
+export type ArticleAction =
+  | { type: "START_FETCH"; requestId?: number; view?: View }
+  | {
+      type: "FETCH_SUCCESS";
+      requestId?: number;
+      articles?: Article[];
+      total?: number;
+      isCompact?: boolean;
+      view?: View;
+    }
+  | { type: "FETCH_ERROR"; requestId?: number; error?: string }
+  | { type: "SELECT_ARTICLE"; payload?: SelectedUpdater; article?: Article | null }
+  | { type: "RESIZE_VIEWPORT"; isCompact: boolean; view?: View };
+
+export const initialArticleState: ArticleState = {
   articles: [],
   total: 0,
   loading: true,
@@ -7,7 +38,7 @@ export const initialArticleState = {
   requestId: 0,
 };
 
-export function articleReducer(state, action) {
+export function articleReducer(state: ArticleState, action: ArticleAction): ArticleState {
   switch (action.type) {
     case "START_FETCH":
       return {
@@ -24,12 +55,13 @@ export function articleReducer(state, action) {
         return state;
       }
       const articles = action.articles || [];
-      let nextSelected = null;
+      let nextSelected: Article | null = null;
       if (action.view === "briefing") {
         nextSelected = state.selected;
       } else if (articles.length > 0) {
-        if (state.selected && articles.some((a) => a.id === state.selected.id)) {
-          nextSelected = state.selected;
+        const current = state.selected;
+        if (current && articles.some((a) => a.id === current.id)) {
+          nextSelected = current;
         } else if (!action.isCompact) {
           nextSelected = articles[0];
         }
@@ -68,7 +100,7 @@ export function articleReducer(state, action) {
           : action.article;
       return {
         ...state,
-        selected: nextSelected,
+        selected: nextSelected ?? null,
       };
     }
 

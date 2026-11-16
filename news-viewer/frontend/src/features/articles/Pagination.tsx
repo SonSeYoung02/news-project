@@ -1,5 +1,6 @@
-import { BORDER, TEXT_MUTED } from "../../styles/theme.js";
-import { sharedStyles } from "../../styles/shared.js";
+import { BORDER, TEXT_MUTED } from "../../styles/theme.ts";
+import { sharedStyles } from "../../styles/shared.ts";
+import type { StyleMap } from "../../styles/shared.ts";
 
 const s = {
   pagination: {
@@ -31,9 +32,15 @@ const s = {
     fontVariantNumeric: "tabular-nums",
   },
   touchButton: sharedStyles.touchButton,
-};
+} satisfies StyleMap;
 
-export default function Pagination({ page, totalPages, onPageChange }) {
+interface PaginationProps {
+  page: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}
+
+export default function Pagination({ page, totalPages, onPageChange }: PaginationProps) {
   return (
     <div style={s.pagination}>
       <button

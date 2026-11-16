@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
-import { useArticleState, useArticles } from "./features/articles/useArticles.js";
-import ArticleList from "./features/articles/ArticleList.jsx";
-import ArticleDetail from "./features/articles/ArticleDetail.jsx";
-import useBriefing from "./features/briefing/useBriefing.js";
-import BriefingList from "./features/briefing/BriefingList.jsx";
-import useMediaQuery from "./hooks/useMediaQuery.js";
-import Sidebar from "./layout/Sidebar.jsx";
-import Topbar, { ReadingHeader } from "./layout/Topbar.jsx";
-import { sharedStyles } from "./styles/shared.js";
-import { BORDER } from "./styles/theme.js";
+import type { FormEvent } from "react";
+import { useArticleState, useArticles } from "./features/articles/useArticles.ts";
+import ArticleList from "./features/articles/ArticleList.tsx";
+import ArticleDetail from "./features/articles/ArticleDetail.tsx";
+import type { View } from "./features/articles/articleState.ts";
+import useBriefing from "./features/briefing/useBriefing.ts";
+import BriefingList from "./features/briefing/BriefingList.tsx";
+import useMediaQuery from "./hooks/useMediaQuery.ts";
+import Sidebar from "./layout/Sidebar.tsx";
+import Topbar, { ReadingHeader } from "./layout/Topbar.tsx";
+import { sharedStyles } from "./styles/shared.ts";
+import type { StyleMap } from "./styles/shared.ts";
+import { BORDER } from "./styles/theme.ts";
 
 const COMPACT_QUERY = "(max-width: 1023px)";
 
@@ -45,10 +48,10 @@ const s = {
   compactLayout: { flexDirection: "column" },
   compactList: { width: "100%", minWidth: 0, flex: 1, borderRight: "none" },
   error: sharedStyles.error,
-};
+} satisfies StyleMap;
 
 export default function App() {
-  const [view, setView] = useState("briefing");
+  const [view, setView] = useState<View>("briefing");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const isCompact = useMediaQuery(COMPACT_QUERY, () => setFiltersOpen(false));
 
@@ -85,7 +88,7 @@ export default function App() {
   } = useArticles(articleState);
 
   useEffect(() => {
-    if (view === "briefing" && !isCompact && !briefingLoading && !selected && (briefing?.articles || []).length > 0) {
+    if (view === "briefing" && !isCompact && !briefingLoading && !selected && briefing && (briefing.articles || []).length > 0) {
       setSelected(briefing.articles[0]);
     }
   }, [view, isCompact, briefingLoading, selected, briefing]);
@@ -96,7 +99,7 @@ export default function App() {
     }
   }, [view, isCompact, loading, selected, articles]);
 
-  const handleSourceClick = (src) => {
+  const handleSourceClick = (src: string) => {
     setView("articles");
     setFiltersOpen(false);
     toggleSource(src);
@@ -112,13 +115,13 @@ export default function App() {
     resetSearch();
   };
 
-  const handleSearchSubmit = (e) => {
+  const handleSearchSubmit = (e?: FormEvent<HTMLFormElement>) => {
     e?.preventDefault();
     setView("articles");
     submitSearch();
   };
 
-  const handleViewChange = (id) => {
+  const handleViewChange = (id: View) => {
     if (view !== id) {
       setView(id);
       setSelected(null);

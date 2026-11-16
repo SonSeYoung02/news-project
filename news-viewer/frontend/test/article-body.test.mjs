@@ -2,14 +2,14 @@ import { createServer } from "vite";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-// Start Vite in SSR middleware mode to load the exact production features/articles/ArticleBody.jsx
+// Start Vite in SSR middleware mode to load the exact production features/articles/ArticleBody.tsx
 const vite = await createServer({
   server: { middlewareMode: true },
   appType: "custom",
 });
 
 const { default: ArticleBody, isSafeUrl, safeUrlTransform, cleanArticleText } =
-  await vite.ssrLoadModule("./src/features/articles/ArticleBody.jsx");
+  await vite.ssrLoadModule("./src/features/articles/ArticleBody.tsx");
 
 await vite.close();
 

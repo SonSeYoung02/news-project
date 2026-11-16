@@ -1,8 +1,10 @@
-import { ACCENT, ACCENT_DARK, TEXT_SECONDARY, TEXT_MUTED } from "../../styles/theme.js";
-import { sharedStyles } from "../../styles/shared.js";
-import SourceMark from "../../components/SourceMark.jsx";
-import { formatDate } from "../../utils/formatDate.js";
-import ArticleBody from "./ArticleBody.jsx";
+import { ACCENT, ACCENT_DARK, TEXT_SECONDARY, TEXT_MUTED } from "../../styles/theme.ts";
+import { sharedStyles } from "../../styles/shared.ts";
+import type { StyleMap } from "../../styles/shared.ts";
+import SourceMark from "../../components/SourceMark.tsx";
+import { formatDate } from "../../utils/formatDate.ts";
+import ArticleBody from "./ArticleBody.tsx";
+import type { Article } from "../../api/types.ts";
 
 const s = {
   readerContainer: {
@@ -98,10 +100,16 @@ const s = {
   compactDetailTitle: { fontSize: 21, lineHeight: 1.35 },
   tagRow: sharedStyles.tagRow,
   tag: sharedStyles.tag,
-};
+} satisfies StyleMap;
 
 // 선택된 기사의 상세 영역. 선택된 기사가 없으면 emptyMessage를 보여준다.
-export default function ArticleDetail({ selected, isCompact, emptyMessage }) {
+interface ArticleDetailProps {
+  selected: Article | null;
+  isCompact: boolean;
+  emptyMessage: string;
+}
+
+export default function ArticleDetail({ selected, isCompact, emptyMessage }: ArticleDetailProps) {
   return (
     <div
       aria-label="기사 상세"
