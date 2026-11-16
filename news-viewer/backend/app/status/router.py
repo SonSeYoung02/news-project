@@ -109,7 +109,6 @@ def index():
     <p>FastAPI 서버가 정상적으로 동작하고 있습니다.</p>
     <div class="links">
       <a href="/docs" class="btn-primary">Swagger 문서</a>
-      <a href="/redoc" class="btn-secondary">ReDoc 문서</a>
       <a href="/articles" class="btn-secondary">기사 목록 API</a>
     </div>
     <div class="info">http://localhost:8000</div>
