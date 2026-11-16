@@ -795,10 +795,7 @@ export default function App() {
   }, [view, isCompact, loading, selected, articles]);
 
   const totalPages = Math.ceil(total / SIZE);
-  const categoryItems = [
-    { major_category: "", count: totalAll },
-    ...categories,
-  ];
+  const categoryItems = categories;
   const sourceItems = [
     { source: "", count: totalAll },
     ...SOURCE_FILTERS.map((source) => ({
@@ -920,7 +917,7 @@ export default function App() {
               onClick={() => handleCategoryClick(c.major_category)}
               style={{ ...s.filterItem(selectedCategory === c.major_category), ...s.filterControl }}
             >
-              <span>{c.major_category || "전체"}</span>
+              <span>{c.major_category}</span>
               <span style={s.filterCount(selectedCategory === c.major_category)}>{c.count}</span>
             </button>
           ))}
