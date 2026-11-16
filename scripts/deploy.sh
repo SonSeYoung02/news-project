@@ -10,7 +10,8 @@
 # 활성 색의 유일한 원천은 proxy가 읽는 .deploy/proxy/active.conf다(없으면 blue로 간주).
 #
 # 환경 변수
-#   WEB_PORT                 proxy 외부 포트(기본 80, 루트 .env도 읽음)
+#   WEB_BIND_ADDRESS         proxy 호스트 바인딩 주소(기본 127.0.0.1, 루트 .env도 읽음)
+#   WEB_PORT                 proxy 호스트 포트(기본 80, 루트 .env도 읽음)
 #   WAIT_TIMEOUT             헬스체크 대기 최대 초(기본 300)
 #   DRAIN_SECONDS            전환 후 이전 색을 내리기 전 대기 초(기본 15)
 #   FORCE_CRAWLER=1          수집 시간대여도 crawler 교체를 강제
