@@ -29,12 +29,13 @@ services:
     restart: unless-stopped
     logging: *default-logging
 
-  # 외부에 노출하는 유일한 포트. 설정 폴더와 활성 색 파일을 마운트하므로 설정 변경·색 전환은
-  # 컨테이너 재생성 없이 reload로 반영된다(nginx/proxy/conf.d/default.conf 참고).
+  # 호스트 포트를 여는 유일한 서비스(기본 127.0.0.1:80). 설정 폴더와 활성 색 파일을 마운트하므로
+  # 설정 변경·색 전환은 컨테이너 재생성 없이 reload로 반영된다(nginx/proxy/conf.d/default.conf 참고).
+  # LAN/전체 인터페이스 공개가 필요하면 루트 .env나 환경 변수로 WEB_BIND_ADDRESS를 명시한다.
   proxy:
     image: nginx:alpine
     ports:
-      - "${WEB_PORT:-80}:80"
+      - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-80}:80"
     volumes:
       - ./nginx/proxy/conf.d:/etc/nginx/conf.d:ro
       - ./.deploy/proxy:/etc/nginx/bluegreen:ro

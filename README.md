@@ -157,7 +157,7 @@ Windows에서는 저장소 루트에서 `.\start.ps1`을 실행하면 백엔드�
 
 블루-그린 방식으로 무중단 교체할 수 있게 두 묶음으로 나눠 실행합니다. 공식 multi-arch 이미지를 쓰므로 Raspberry Pi OS 64bit(ARM64)에서도 그대로 빌드됩니다.
 
-- **core 스택** (`docker-compose.yml`, 프로젝트 `news-project`): 외부 포트를 유일하게 여는 엣지 프록시 `proxy`(nginx), 수집기 `crawler`, 데이터 볼륨 `news-project_news-data`(`news.db`), 공유 네트워크 `news-edge`.
+- **core 스택** (`docker-compose.yml`, 프로젝트 `news-project`): 호스트 포트를 유일하게 여는 엣지 프록시 `proxy`(nginx, 기본 `127.0.0.1:80`), 수집기 `crawler`, 데이터 볼륨 `news-project_news-data`(`news.db`), 공유 네트워크 `news-edge`.
 - **색상별 앱 스택** (`docker-compose.app.yml`, 프로젝트 `news-blue` / `news-green`): 화면 정적 파일 서버 `web`(빌드 결과가 `nginx/web` 이미지에 담김)과 API `backend`를 한 쌍으로 띄웁니다. `proxy`는 활성 색의 `web-<색>`으로 `/`를, `backend-<색>`으로 `/api/`(접두사 제거)를 보냅니다.
 - **전제**: Docker Engine과 Compose 플러그인(`docker compose`, v2.24 이상), bash
 - **설정**: `news-crawling/.env`에 `GEMINI_API_KEY=<발급받은 키>`를 적습니다. 파일이 없어도 실행되지만 번역은 건너뜁니다.
@@ -165,11 +165,12 @@ Windows에서는 저장소 루트에서 `.\start.ps1`을 실행하면 백엔드�
 배포와 로컬 실행 모두 [`scripts/deploy.sh`](scripts/deploy.sh)를 사용합니다. 실행할 때마다 비활성 색을 새로 빌드·기동해 검증한 뒤 `proxy`를 그 색으로 전환(`nginx -t` 후 `nginx -s reload`)하고, 잠시 뒤 이전 색을 내립니다. 새 색이 헬스체크나 검증에 실패하면 이전 색으로 되돌리고 실패로 끝나므로 서비스는 이전 버전으로 계속 유지됩니다.
 
 ```bash
-bash scripts/deploy.sh                 # 빌드 후 무중단 배포 → http://<장비 IP>/ (최초 실행도 이 명령)
-WEB_PORT=8080 bash scripts/deploy.sh   # 80 포트가 사용 중이면 다른 포트로 노출(루트 .env에 WEB_PORT=8080도 가능)
-bash scripts/deploy.sh status          # 활성 색과 서비스 상태
-docker compose logs -f proxy           # core 로그 확인 (crawler도 동일)
-docker compose -p news-blue logs -f    # 앱 스택 로그 확인 (활성 색 이름 사용)
+bash scripts/deploy.sh                                 # 빌드 후 무중단 배포 → http://127.0.0.1/ (기본 loopback 전용)
+WEB_PORT=8080 bash scripts/deploy.sh                   # 80 포트가 사용 중이면 다른 포트로 변경(127.0.0.1:8080)
+WEB_BIND_ADDRESS=0.0.0.0 bash scripts/deploy.sh        # 의도적으로 모든 IPv4 인터페이스에 공개(LAN IP 지정도 가능)
+bash scripts/deploy.sh status                          # 활성 색과 서비스 상태
+docker compose logs -f proxy                           # core 로그 확인 (crawler도 동일)
+docker compose -p news-blue logs -f                    # 앱 스택 로그 확인 (활성 색 이름 사용)
 docker compose run --rm crawler python main.py --run   # 지금 1회 수집
 ```
 
@@ -201,6 +202,14 @@ docker compose -p "news-$COLOR" start backend
 docker compose start crawler
 ```
 
+#### 원본 포트 바인딩과 Cloudflare Tunnel 연결
+
+- **기본 동작 (`127.0.0.1:${WEB_PORT:-80}:80`)**: `WEB_BIND_ADDRESS`를 지정하지 않으면 호스트 loopback(`127.0.0.1`)에만 바인딩되므로 LAN이나 외부에서 원본 HTTP 포트로 직접 접속할 수 없습니다. 루트 `.env`에 `WEB_BIND_ADDRESS`와 `WEB_PORT`를 적어 두면 `scripts/deploy.sh`와 `docker compose`가 함께 읽습니다.
+- **호스트에서 `cloudflared` 실행 시**: 기본값(`127.0.0.1`)을 유지한 채 Tunnel 원본(origin) 주소를 `http://127.0.0.1:80`(포트 변경 시 `http://127.0.0.1:<WEB_PORT>`)으로 연결합니다.
+- **컨테이너에서 `cloudflared` 실행 시**: 컨테이너 내부의 `127.0.0.1`은 호스트가 아니므로 호스트 loopback 포트에 바로 닿지 않습니다(`network_mode: host` 제외). 대신 `cloudflared` 컨테이너를 공유 네트워크 `news-edge`에 연결하고 Tunnel 원본 주소를 `http://proxy:80`으로 지정합니다(`proxy`는 `news-edge` 내부에서 `80` 포트를 수신). 호스트 직접 접속이 전혀 필요 없다면 `proxy`의 `ports` 공개를 제거하는 구성도 가능하지만, `scripts/deploy.sh`는 `-f docker-compose.yml`을 직접 지정해 `docker-compose.override.yml`을 자동 병합하지 않으며 자동 배포 워크플로가 추적 파일의 로컬 수정을 거부하므로 저장소 설정 또는 별도 배포 관리로 반영해야 합니다.
+- **의도적 LAN / 전체 인터페이스 공개 시**: 같은 LAN에서 직접 접속하거나 외부/컨테이너에서 호스트 IP로 접근해야 할 때만 `WEB_BIND_ADDRESS`를 명시합니다(특정 LAN IP 예: `WEB_BIND_ADDRESS=192.168.0.10`, 전체 IPv4 인터페이스 공개: `WEB_BIND_ADDRESS=0.0.0.0`). 공개 바인딩 시에는 호스트 방화벽·공유기 포트포워딩·IPv6 규칙을 함께 확인해 Cloudflare Access/WAF 우회 경로가 열리지 않게 주의하세요.
+- **보안 및 배포 전 주의사항**: Docker Engine 28 미만에서는 Linux 브리지 환경에 따라 loopback 바인딩 포트도 같은 L2 LAN에서 우회 접근될 수 있으므로 엔진 버전과 호스트 방화벽을 함께 유지하세요. 또한 운영 서버의 `cloudflared` 실행 위치나 Tunnel 원본 주소가 `127.0.0.1`과 다르면 기본값 적용 시 접속이 중단될 수 있으므로, 배포 전 Tunnel 연결 구조를 먼저 확인해야 합니다.
+
 #### 자동 배포 (GitHub Actions self-hosted runner)
 
 `main`에 병합(push)되면 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)이 라즈베리파이의 self-hosted runner(`self-hosted`, `linux`, `ARM64`)에서 실행됩니다. 배포 폴더 `/home/ms/news-project`를 `git merge --ff-only`로 갱신한 뒤 `bash scripts/deploy.sh`로 블루-그린 배포를 하고, 새 색이 검증에 실패하면 이전 색으로 되돌린 채 실패로 표시합니다. 실행 요약에는 활성 색과 서비스 상태가 남습니다. 문서(`*.md`) 등 실행과 무관한 파일만 바뀐 push는 배포하지 않습니다.
@@ -210,7 +219,7 @@ docker compose start crawler
   ```bash
   git clone https://github.com/SonSeYoung02/news-project.git /home/ms/news-project
   cd /home/ms/news-project
-  echo "GEMINI_API_KEY=<발급받은 키>" > news-crawling/.env   # 외부 포트를 바꾸려면 루트 .env에 WEB_PORT=8080
+  echo "GEMINI_API_KEY=<발급받은 키>" > news-crawling/.env   # 바인딩 주소/포트를 바꾸려면 루트 .env에 WEB_BIND_ADDRESS, WEB_PORT 지정
   bash scripts/deploy.sh
   ```
 
