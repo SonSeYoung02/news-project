@@ -9,8 +9,16 @@ FastAPI 기반의 뉴스 기사 조회 REST API 서버입니다.
 
 ```
 backend/
-├── main.py           # FastAPI 애플리케이션 및 API 엔드포인트
-├── requirements.txt  # Python 의존성
+├── app/
+│   ├── common/           # 공통 설정, SQLite 연결 및 유틸리티 (config, database, runtime)
+│   ├── article/          # 기사 도메인 (router, service, repository, schemas)
+│   ├── briefing/         # AI 브리핑 도메인 (router, service, cache, repository, schemas)
+│   ├── meta/             # 카테고리·출처 메타 도메인 (router, repository, schemas)
+│   └── status/           # 서버 상태 대시보드 도메인 (router)
+├── tests/                # 단위 및 통합 테스트
+├── main.py               # FastAPI 애플리케이션 엔트리포인트
+├── requirements.txt      # 런타임 Python 의존성
+├── requirements-dev.txt  # 개발/테스트 의존성
 └── .gitignore
 ```
 
@@ -312,9 +320,10 @@ app.add_middleware(
 python -m unittest discover -p "test_*.py" -v
 
 # 개별 테스트 실행
-python -m unittest test_translated_articles.py -v
-python -m unittest test_search_and_filters.py -v
-python -m unittest test_briefing.py -v
+python -m unittest tests/test_translated_articles.py -v
+python -m unittest tests/test_search_and_filters.py -v
+python -m unittest tests/test_briefing.py -v
+python -m unittest tests/test_security_api.py -v
 ```
 
 ---
