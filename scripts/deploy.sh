@@ -2,7 +2,7 @@
 # 블루-그린 무중단 배포 스크립트.
 #
 #   bash scripts/deploy.sh [deploy]      비활성 색으로 배포 후 전환(기본 동작)
-#   bash scripts/deploy.sh status        활성 색과 서비스 상태 출력
+#   bash scripts/deploy.sh status        활성 색, 크롤러 예약·잠금·실패 상태, 서비스 상태 출력
 #   bash scripts/deploy.sh crawler-window  수집 시간대 판정 결과 출력
 #
 # 구성: core 스택(docker-compose.yml, 프로젝트 news-project: proxy·crawler·볼륨·news-edge 네트워크)과
@@ -10,14 +10,16 @@
 # 활성 색의 유일한 원천은 proxy가 읽는 .deploy/proxy/active.conf다(없으면 blue로 간주).
 #
 # 환경 변수
-#   WEB_BIND_ADDRESS         proxy 호스트 바인딩 주소(기본 127.0.0.1, 루트 .env도 읽음)
-#   WEB_PORT                 proxy 호스트 포트(기본 80, 루트 .env도 읽음)
-#   WAIT_TIMEOUT             헬스체크 대기 최대 초(기본 300)
-#   DRAIN_SECONDS            전환 후 이전 색을 내리기 전 대기 초(기본 15)
-#   FORCE_CRAWLER=1          수집 시간대여도 crawler 교체를 강제
+#   WEB_BIND_ADDRESS          proxy 호스트 바인딩 주소(기본 127.0.0.1, 루트 .env도 읽음)
+#   WEB_PORT                  proxy 호스트 포트(기본 80, 루트 .env도 읽음)
+#   WAIT_TIMEOUT              헬스체크 대기 최대 초(기본 300)
+#   DRAIN_SECONDS             전환 후 이전 색을 내리기 전 대기 초(기본 15)
+#   PROXY_RELOAD_WAIT         proxy reload 후 대기 초(기본 2)
+#   FORCE_CRAWLER=1           수집 시간대여도 crawler 교체를 강제(공유 잠금은 항상 준수)
 #   CRAWLER_WINDOW_MARGIN_MIN 수집 시작 몇 분 전부터 보류할지(기본 10)
-#   DEPLOY_NOW_KST=HH:MM     현재 한국 시각 주입(테스트용)
-#   DEPLOY_LOG_DIR           실패 시 컨테이너 로그 저장 폴더(기본 ~/deploy-logs)
+#   DEPLOY_SHA                빌드·예약에 사용할 커밋 SHA(기본 git rev-parse HEAD)
+#   DEPLOY_NOW_KST=HH:MM      현재 한국 시각 주입(테스트용)
+#   DEPLOY_LOG_DIR            실패 시 컨테이너 로그 저장 폴더(기본 ~/deploy-logs)
 #
 # 보안: 공개 Actions 로그에서 실행되므로 컨테이너 로그, .env 내용, docker compose config 출력은
 #       표준 출력에 남기지 않는다. 실패 로그는 DEPLOY_LOG_DIR(700/600)에만 저장한다.
@@ -32,18 +34,15 @@ APP_FILE="$ROOT/docker-compose.app.yml"
 STATE_DIR="$ROOT/.deploy"
 PROXY_STATE_DIR="$STATE_DIR/proxy"
 ACTIVE_CONF="$PROXY_STATE_DIR/active.conf"
-LOCK_PATH="$STATE_DIR/deploy.lock"
-CRAWLER_STATE="$STATE_DIR/crawler.image"
-CRAWLER_ENV="$ROOT/news-crawling/.env"
-CRAWLER_IMAGE="news-crawler:latest"
 # 블루-그린 이전 구조에서 쓰던 이미지 태그. 전환 후 정리한다.
 LEGACY_IMAGES=(news-nginx:latest news-backend:latest news-frontend:latest)
 
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-300}"
 DRAIN_SECONDS="${DRAIN_SECONDS:-15}"
+PROXY_RELOAD_WAIT="${PROXY_RELOAD_WAIT:-2}"
 FORCE_CRAWLER="${FORCE_CRAWLER:-0}"
 CRAWLER_WINDOW_MARGIN_MIN="${CRAWLER_WINDOW_MARGIN_MIN:-10}"
-LOG_DIR="${DEPLOY_LOG_DIR:-$HOME/deploy-logs}"
+LOG_DIR="${DEPLOY_LOG_DIR:-${HOME:-/tmp}/deploy-logs}"
 
 # ---------------------------------------------------------------- 출력
 
@@ -70,18 +69,8 @@ die() {
   exit 1
 }
 
-# ---------------------------------------------------------------- compose 래퍼
-
-compose_core() {
-  docker compose -p "$CORE_PROJECT" -f "$CORE_FILE" "$@"
-}
-
-# compose_app <color> <compose 인자...>
-compose_app() {
-  local color="$1"
-  shift
-  DEPLOY_COLOR="$color" docker compose -p "$APP_PROJECT_PREFIX-$color" -f "$APP_FILE" "$@"
-}
+# shellcheck source=lib/crawler.sh
+source "$ROOT/scripts/lib/crawler.sh"
 
 other_color() {
   if [ "$1" = "blue" ]; then echo green; else echo blue; fi
@@ -123,61 +112,12 @@ restore_active() {
 
 # ---------------------------------------------------------------- 잠금
 
-acquire_lock() {
+acquire_deploy_lock() {
   mkdir -p "$STATE_DIR"
-  if command -v flock >/dev/null 2>&1; then
-    exec 9>"$LOCK_PATH"
-    flock -n 9 || die "다른 배포가 진행 중입니다(잠금: $LOCK_PATH)."
-  else
-    # flock이 없는 환경(예: Windows Git Bash)용 대체 잠금.
-    mkdir "$LOCK_PATH.d" 2>/dev/null \
-      || die "다른 배포가 진행 중입니다. 중단된 배포라면 $LOCK_PATH.d 폴더를 지우세요."
-    trap 'rmdir "$LOCK_PATH.d" 2>/dev/null || true' EXIT
-  fi
-}
-
-# ---------------------------------------------------------------- 수집 시간대
-
-# news-crawling/.env에 숫자 값이 있으면 그 값을, 없으면 기본값을 쓴다(값 외의 내용은 읽거나 출력하지 않는다).
-crawler_env_int() {
-  local key="$1" default="$2" value=""
-  if [ -f "$CRAWLER_ENV" ]; then
-    value="$(sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*[\"']\{0,1\}\([0-9]\{1,2\}\)[\"']\{0,1\}[[:space:]]*\$/\1/p" \
-      "$CRAWLER_ENV" | tail -n 1)"
-  fi
-  echo "${value:-$default}"
-}
-
-# 현재 한국 시각(자정 기준 분). KST는 서머타임이 없어 UTC+9로 계산한다.
-now_kst_minutes() {
-  local hh mm
-  if [ -n "${DEPLOY_NOW_KST:-}" ]; then
-    [[ "$DEPLOY_NOW_KST" =~ ^([0-9]{1,2}):([0-9]{2})$ ]]
-    echo $(((10#${BASH_REMATCH[1]} * 60 + 10#${BASH_REMATCH[2]}) % 1440))
-    return
-  fi
-  IFS=: read -r hh mm < <(date -u +%H:%M)
-  echo $(((10#$hh * 60 + 10#$mm + 540) % 1440))
-}
-
-fmt_minutes() {
-  printf '%02d:%02d' $(($1 / 60)) $(($1 % 60))
-}
-
-# 수집 시간대(SCHEDULE 시각 - 여유 ~ DEADLINE 시각, KST)이면 0을 반환한다.
-# 결과 설명은 CRAWLER_WINDOW_DESC에 남긴다.
-CRAWLER_WINDOW_DESC=""
-in_crawler_window() {
-  local start end now
-  start=$((10#$(crawler_env_int SCHEDULE_HOUR 1) * 60 + 10#$(crawler_env_int SCHEDULE_MINUTE 0)))
-  end=$((10#$(crawler_env_int DEADLINE_HOUR 6) * 60 + 10#$(crawler_env_int DEADLINE_MINUTE 0)))
-  start=$(((start - CRAWLER_WINDOW_MARGIN_MIN + 1440) % 1440))
-  now="$(now_kst_minutes)"
-  CRAWLER_WINDOW_DESC="수집 시간대 $(fmt_minutes "$start")~$(fmt_minutes "$end") KST(시작 ${CRAWLER_WINDOW_MARGIN_MIN}분 전 포함), 현재 $(fmt_minutes "$now") KST"
-  if [ "$start" -le "$end" ]; then
-    [ "$now" -ge "$start" ] && [ "$now" -lt "$end" ]
-  else
-    [ "$now" -ge "$start" ] || [ "$now" -lt "$end" ]
+  acquire_fd_lock 9 "$DEPLOY_LOCK_PATH" 1 644 \
+    || die "다른 배포가 진행 중입니다(잠금: $DEPLOY_LOCK_PATH)."
+  if ! command -v flock >/dev/null 2>&1; then
+    trap 'release_fd_lock 9' EXIT
   fi
 }
 
@@ -187,7 +127,7 @@ in_crawler_window() {
 http_ok() {
   local cid="$1" url="$2" _
   for _ in 1 2 3 4 5; do
-    if docker exec "$cid" wget -q -T 5 -O - "$url" >/dev/null 2>&1; then
+    if docker_cmd exec "$cid" wget -q -T 5 -O - "$url" >/dev/null 2>&1; then
       return 0
     fi
     sleep 2
@@ -237,150 +177,16 @@ proxy_reload() {
   fi
   compose_core exec -T proxy nginx -s reload || return 1
   # reload 신호는 비동기라 새 worker가 뜰 시간을 잠시 준다.
-  sleep 2
-}
-
-# ---------------------------------------------------------------- 실패 로그
-
-print_ps() {
-  local color
-  echo "--- core ($CORE_PROJECT)"
-  compose_core ps -a || true
-  for color in blue green; do
-    echo "--- app ($APP_PROJECT_PREFIX-$color)"
-    compose_app "$color" ps -a || true
-  done
-}
-
-# 공개 로그에는 ps와 파일 경로만 남기고, 컨테이너 로그는 러너 호스트 파일로만 저장한다.
-save_logs() {
-  local log_file color rev
-  rev="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-  log_file="$LOG_DIR/$(date -u +%Y%m%dT%H%M%SZ)-$rev.log"
-  print_ps
-  # 파일을 600 권한으로 먼저 만든 뒤 내용을 쓴다(디렉터리는 700).
-  if (umask 077 && mkdir -p "$LOG_DIR" && chmod 700 "$LOG_DIR" \
-      && touch "$log_file" && chmod 600 "$log_file"); then
-    {
-      print_ps
-      echo
-      echo "=== core logs"
-      compose_core logs --no-color --timestamps --tail 500
-      for color in blue green; do
-        echo
-        echo "=== app $color logs"
-        compose_app "$color" logs --no-color --timestamps --tail 500
-      done
-    } >>"$log_file" 2>&1 || true
-    log "컨테이너 로그는 공개 로그에 출력하지 않고 러너 호스트에 저장했습니다: $log_file"
-  else
-    warn "컨테이너 로그 파일 저장에 실패했습니다. 호스트에서 'docker compose logs'로 확인하세요."
-  fi
-  # 최근 20개 로그만 남긴다. 파일명이 UTC 타임스탬프로 시작해 이름순 정렬이 시간순이다.
-  find "$LOG_DIR" -maxdepth 1 -type f -name '*.log' 2>/dev/null \
-    | sort -r | tail -n +21 | xargs -r rm -f -- || true
-}
-
-# ---------------------------------------------------------------- crawler
-
-# 이미지 내용 지문(레이어 + 이미지 설정). Docker 29(containerd 이미지 저장소)는 변경이 없어도
-# 다시 빌드하면 이미지 ID가 바뀌고, 태그가 옮겨진 이전 이미지는 조회되지 않을 수 있어 ID 대신 내용을 비교한다.
-# 이미지를 조회할 수 없으면 빈 문자열을 출력한다.
-image_fingerprint() {
-  local meta
-  meta="$(docker image inspect -f '{{json .RootFS.Layers}}{{json .Config}}' "$1" 2>/dev/null)" || return 0
-  [ -n "$meta" ] || return 0
-  printf '%s' "$meta" | sha256sum | cut -c1-64
-}
-
-# crawler 컨테이너 상태: missing | stopped | changed | same
-# 실행 중 crawler의 이미지 지문은 마지막으로 기동할 때 CRAWLER_STATE에 기록한 값을 쓴다.
-crawler_state() {
-  local cid running cur_fp="" new_fp cur_hash new_hash
-  cid="$(compose_core ps -a -q crawler | head -n 1)"
-  [ -n "$cid" ] || { echo missing; return; }
-  running="$(docker inspect -f '{{.State.Running}}' "$cid")"
-  [ "$running" = "true" ] || { echo stopped; return; }
-  if [ -f "$CRAWLER_STATE" ]; then
-    cur_fp="$(cat "$CRAWLER_STATE")"
-  elif docker image inspect "$(docker inspect -f '{{.Image}}' "$cid")" >/dev/null 2>&1; then
-    # 기록이 없으면(1회 전환 직후 등) 컨테이너 이미지를 조회할 수 있을 때만 그 내용을 비교한다.
-    cur_fp="$(image_fingerprint "$(docker inspect -f '{{.Image}}' "$cid")")"
-  fi
-  new_fp="$(image_fingerprint "$CRAWLER_IMAGE")"
-  cur_hash="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.config-hash"}}' "$cid")"
-  # 서비스 정의 해시만 출력된다(환경 변수 값은 출력되지 않으며 변수에만 담는다).
-  new_hash="$(compose_core config --hash crawler | awk '{print $2}')"
-  if [ -z "$cur_fp" ] || [ -z "$new_fp" ] || [ "$cur_fp" != "$new_fp" ] || [ "$cur_hash" != "$new_hash" ]; then
-    echo changed
-  else
-    echo same
-  fi
-}
-
-# crawler를 현재 news-crawler:latest로 (재)생성하고 이미지 지문을 기록한다.
-# compose는 서비스 정의 해시만 비교하므로 이미지만 바뀐 경우에도 교체되도록 강제 재생성한다.
-crawler_up() {
-  compose_core up -d --no-deps --no-build --force-recreate --wait --wait-timeout "$WAIT_TIMEOUT" crawler \
-    || return 1
-  image_fingerprint "$CRAWLER_IMAGE" >"$CRAWLER_STATE"
-}
-
-# 지문 기록이 없으면(1회 전환 등) 빌드로 태그가 옮겨지기 전에 실행 중 crawler의 이미지 지문을 남긴다.
-seed_crawler_state() {
-  local cid fp
-  [ -f "$CRAWLER_STATE" ] && return 0
-  cid="$(compose_core ps -q crawler | head -n 1)"
-  [ -n "$cid" ] || return 0
-  fp="$(image_fingerprint "$(docker inspect -f '{{.Image}}' "$cid")")"
-  if [ -n "$fp" ]; then
-    echo "$fp" >"$CRAWLER_STATE"
-  fi
-}
-
-# 없거나 멈춘 crawler만 기동한다(앱 검증 전에 DB 스키마가 준비되도록).
-ensure_crawler_running() {
-  local state
-  state="$(crawler_state)"
-  case "$state" in
-    missing | stopped)
-      log "crawler가 실행 중이 아니어서($state) 기동합니다."
-      crawler_up
-      ;;
-  esac
-}
-
-# 이미지·정의가 바뀐 경우에만 crawler를 재생성한다. 수집 시간대에는 보류한다.
-update_crawler() {
-  local state
-  state="$(crawler_state)"
-  case "$state" in
-    same)
-      log "crawler 변경 없음: 재생성하지 않습니다."
-      ;;
-    missing | stopped)
-      log "crawler가 실행 중이 아니어서($state) 기동합니다."
-      crawler_up
-      ;;
-    changed)
-      if in_crawler_window && [ "$FORCE_CRAWLER" != "1" ]; then
-        warn "crawler 변경이 있지만 수집 시간대라 교체를 보류했습니다($CRAWLER_WINDOW_DESC). 시간대가 지난 뒤 배포를 다시 실행하거나 FORCE_CRAWLER=1로 강제하세요."
-        return 0
-      fi
-      [ "$FORCE_CRAWLER" = "1" ] && log "FORCE_CRAWLER=1: 수집 시간대 판정과 무관하게 crawler를 교체합니다."
-      log "crawler 변경 감지: 재생성합니다."
-      crawler_up
-      ;;
-  esac
+  [ "$PROXY_RELOAD_WAIT" -gt 0 ] 2>/dev/null && sleep "$PROXY_RELOAD_WAIT" || true
 }
 
 # ---------------------------------------------------------------- 배포
 
 legacy_containers() {
   {
-    docker ps -aq --filter "label=com.docker.compose.project=$CORE_PROJECT" \
+    docker_cmd ps -aq --filter "label=com.docker.compose.project=$CORE_PROJECT" \
       --filter "label=com.docker.compose.service=nginx"
-    docker ps -aq --filter "label=com.docker.compose.project=$CORE_PROJECT" \
+    docker_cmd ps -aq --filter "label=com.docker.compose.project=$CORE_PROJECT" \
       --filter "label=com.docker.compose.service=backend"
   } | sort -u
 }
@@ -414,10 +220,48 @@ rollback() {
   exit 1
 }
 
+warn_if_timer_inactive() {
+  if command -v systemctl >/dev/null 2>&1; then
+    if ! run_unlocked_fds systemctl is-active --quiet news-crawler-apply.timer 2>/dev/null; then
+      warn "news-crawler-apply.timer가 비활성 상태입니다. 보류된 예약을 자동 반영하려면 README의 systemd 타이머 설치 안내를 확인하세요."
+    fi
+  fi
+}
+
+handle_crawler_update_after_app_deploy() {
+  local sha="$1" target_image="$2" target_fp target_cfg state
+  target_fp="$(image_fingerprint "$target_image")"
+  target_cfg="$(canonical_crawler_config_hash)"
+  state="$(crawler_state_for_image "$target_image")"
+
+  case "$state" in
+    same)
+      log "crawler 변경 없음: 재생성하지 않습니다."
+      clear_obsolete_reservation_if_same "$target_image"
+      cleanup_crawler_images "$target_image"
+      ;;
+    missing | stopped | changed)
+      save_crawler_reservation "$sha" "$target_image" "$target_fp" "$target_cfg" "$FORCE_CRAWLER"
+      log "crawler 교체 예약을 저장했습니다: sha=${sha:0:12} ($target_image)"
+      if in_crawler_window && [ "$FORCE_CRAWLER" != "1" ]; then
+        warn "수집 시간대라 crawler 교체를 보류하고 예약을 저장했습니다($CRAWLER_WINDOW_DESC). 유휴 시 타이머가 자동 적용하며, 즉시 적용하려면 FORCE_CRAWLER=1로 실행하세요."
+        warn_if_timer_inactive
+        cleanup_crawler_images "$target_image"
+        return 0
+      fi
+      [ "$FORCE_CRAWLER" = "1" ] && log "FORCE_CRAWLER=1: 수집 시간대 판정과 무관하게 crawler 교체를 시도합니다."
+      if ! apply_reserved_crawler; then
+        die "crawler 기동 또는 헬스체크에 실패했습니다. 앱은 $TARGET(으)로 서비스 중이며 이전 crawler 복구와 예약/실패 상태 기록을 완료했습니다."
+      fi
+      ;;
+  esac
+}
+
 cmd_deploy() {
-  local legacy old
-  acquire_lock
+  local legacy old deploy_sha crawler_sha_image
+  acquire_deploy_lock
   mkdir -p "$PROXY_STATE_DIR"
+  ensure_lock_file_inode "$CRAWL_LOCK_PATH" 666
 
   ACTIVE="$(read_active)"
   legacy="$(legacy_containers)"
@@ -433,11 +277,14 @@ cmd_deploy() {
   if [ "$ACTIVE" = "blue" ]; then TARGET=green; else TARGET=blue; fi
   log "활성 색: ${ACTIVE:-없음} → 배포 대상: $TARGET"
 
+  deploy_sha="$(resolve_commit_sha)"
+  crawler_sha_image="$(crawler_sha_image_tag "$deploy_sha")"
+
   seed_crawler_state
 
-  # 1) 이미지 빌드(서비스 영향 없음)
-  log "이미지를 빌드합니다(crawler, $TARGET 앱 스택)."
-  compose_core build crawler
+  # 1) 이미지 빌드(서비스 영향 없음; 크롤러는 커밋 SHA 태그로 준비해 실행 중 :latest를 덮어쓰지 않음)
+  log "이미지를 빌드합니다(crawler=$crawler_sha_image, $TARGET 앱 스택)."
+  CRAWLER_IMAGE="$crawler_sha_image" compose_core build crawler
   compose_app "$TARGET" build
 
   # 2) core 보장
@@ -449,7 +296,7 @@ cmd_deploy() {
     compose_core up -d --no-deps --wait --wait-timeout "$WAIT_TIMEOUT" proxy
     # nginx/proxy/conf.d 변경은 재생성 없이 reload로 반영한다.
     proxy_reload || die "proxy 설정 반영에 실패했습니다. 앱 전환 전이라 서비스는 그대로입니다."
-    ensure_crawler_running
+    ensure_crawler_running "$crawler_sha_image" "$deploy_sha"
   fi
 
   # 3) 대상 색 기동
@@ -483,25 +330,21 @@ cmd_deploy() {
   old="$(other_color "$TARGET")"
   if [ -n "$(compose_app "$old" ps -a -q)" ]; then
     log "진행 중인 요청을 위해 ${DRAIN_SECONDS}초 기다린 뒤 이전 색($old) 스택을 내립니다."
-    sleep "$DRAIN_SECONDS"
+    [ "$DRAIN_SECONDS" -gt 0 ] 2>/dev/null && sleep "$DRAIN_SECONDS" || true
     compose_app "$old" down --remove-orphans
   fi
 
-  # crawler는 앱 전환과 독립적으로 마지막에 처리한다(실패해도 앱은 새 색으로 서비스된다).
-  if ! update_crawler; then
-    save_logs
-    die "crawler 기동 또는 헬스체크에 실패했습니다. 앱은 $TARGET(으)로 서비스 중입니다."
-  fi
+  # 8) crawler 예약/교체(앱 전환과 독립적으로 마지막에 처리; 실패해도 앱은 새 색으로 서비스된다)
+  handle_crawler_update_after_app_deploy "$deploy_sha" "$crawler_sha_image"
 
-  # 9) 정리
+  # 9) 이전 구조 이미지 정리(미사용 SHA 태그와 dangling 정리도 위 단계의 cleanup_crawler_images에서 수행)
   local image
   for image in "${LEGACY_IMAGES[@]}"; do
-    if docker image inspect "$image" >/dev/null 2>&1 \
-        && docker image rm "$image" >/dev/null 2>&1; then
+    if docker_cmd image inspect "$image" >/dev/null 2>&1 \
+        && docker_cmd image rm "$image" >/dev/null 2>&1; then
       log "이전 구조 이미지 정리: $image"
     fi
   done
-  docker image prune -f
 }
 
 cmd_status() {
@@ -513,6 +356,7 @@ cmd_status() {
   else
     echo "crawler 교체: 허용 ($CRAWLER_WINDOW_DESC)"
   fi
+  print_crawler_status
   print_ps
 }
 

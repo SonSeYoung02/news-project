@@ -14,18 +14,20 @@ x-logging: &default-logging
 
 services:
   # 블루-그린에서 제외한 단일 인스턴스. 두 개가 동시에 돌면 01:00 수집이 중복되고
-  # Gemini 할당량을 두 배로 쓰므로, 교체 여부는 scripts/deploy.sh가 수집 시간대를 보고 결정한다.
+  # Gemini 할당량을 두 배로 쓰므로, 교체 여부는 호스트 공유 flock과 수집 시간대를 보고 결정한다.
   crawler:
     build: ./news-crawling
-    image: news-crawler:latest
+    image: ${CRAWLER_IMAGE:-news-crawler:latest}
     env_file:
       - path: ./news-crawling/.env
         required: false
     environment:
       DB_PATH: /data/news.db
+      CRAWL_LOCK_PATH: /run/crawler-lock/crawl.lock
       TZ: Asia/Seoul
     volumes:
       - news-data:/data
+      - ./.deploy/locks:/run/crawler-lock
     restart: unless-stopped
     logging: *default-logging
 
