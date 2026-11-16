@@ -1,20 +1,39 @@
+from dataclasses import dataclass
 import hashlib
 import json
 import os
 import sqlite3
+import threading
+import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Path as ApiPath, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "news-crawling" / "news.db"
 DB_PATH = Path(os.environ.get("DB_PATH", str(DEFAULT_DB_PATH)))
+
+# SQLite signed int64 및 요청 입력 보호 상한
+SQLITE_MIN_INT64 = -(2**63)
+SQLITE_MAX_INT64 = 2**63 - 1
+MAX_PAGE = 10_000
+MAX_OFFSET = 200_000
+MAX_SEARCH_QUERY_LENGTH = 200
+MAX_FILTER_LENGTH = 100
+
+# /briefing 메모리 제한 스트리밍 및 TTL 캐시 설정
+BRIEFING_MAX_ARTICLES = 5
+BRIEFING_SCAN_BATCH_SIZE = 500
+BRIEFING_COMPACT_THRESHOLD = 500
+BRIEFING_CACHE_TTL_SECONDS = 30.0
+BRIEFING_CACHE_MAX_ENTRIES = 16
+BRIEFING_INFLIGHT_WAIT_TIMEOUT_SECONDS = 30.0
 
 # 한국어 출처 목록 (번역이 불필요한 대상 판별에 사용)
 KOREAN_SOURCES = ("네이버뉴스", "GeekNews", "naver", "geeknews")
@@ -234,6 +253,83 @@ def _row_to_dict(row) -> dict:
     return d
 
 
+def _reject_nul_byte(value: Optional[str], field_name: str) -> None:
+    if value is not None and "\x00" in value:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{field_name} contains an invalid NUL character",
+        )
+
+
+def _escape_like_pattern(term: str) -> str:
+    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def _article_select_fields(has_trans: bool, use_analysis: bool) -> str:
+    meta_fields = (
+        """
+        COALESCE(aa.summary, a.summary) AS summary,
+        COALESCE(aa.major_category, a.major_category) AS major_category,
+        COALESCE(aa.sub_category, a.sub_category) AS sub_category,
+        COALESCE(aa.tags, a.tags) AS tags
+        """
+        if use_analysis
+        else """
+        a.summary AS summary,
+        a.major_category AS major_category,
+        a.sub_category AS sub_category,
+        a.tags AS tags
+        """
+    )
+    if has_trans:
+        return f"""
+            a.id, a.url, a.source,
+            a.published_at, a.crawled_at,
+            a.title AS original_title,
+            a.content AS original_content,
+            CASE
+                WHEN at.status = 'completed' AND at.translated_title IS NOT NULL AND at.translated_title != ''
+                THEN at.translated_title
+                ELSE a.title
+            END AS title,
+            CASE
+                WHEN at.status = 'completed' AND at.translated_content IS NOT NULL AND at.translated_content != ''
+                THEN at.translated_content
+                ELSE a.content
+            END AS content,
+            CASE
+                WHEN at.status = 'completed' THEN at.translated_title
+                ELSE NULL
+            END AS translated_title,
+            CASE
+                WHEN at.status = 'completed' THEN at.translated_content
+                ELSE NULL
+            END AS translated_content,
+            CASE
+                WHEN at.status IS NOT NULL THEN at.status
+                WHEN a.source IN ({_KOREAN_SOURCES_SQL}) THEN 'not_needed'
+                ELSE 'pending'
+            END AS translation_status,
+            {meta_fields}
+        """
+    return f"""
+        a.id, a.url, a.source,
+        a.published_at, a.crawled_at,
+        a.title AS original_title,
+        a.content AS original_content,
+        a.title AS title,
+        a.content AS content,
+        NULL AS translated_title,
+        NULL AS translated_content,
+        CASE
+            WHEN a.source IN ({_KOREAN_SOURCES_SQL}) THEN 'not_needed'
+            ELSE 'pending'
+        END AS translation_status,
+        {meta_fields}
+    """
+
+
 @app.get(
     "/articles",
     response_model=ArticleListResponse,
@@ -242,13 +338,39 @@ def _row_to_dict(row) -> dict:
     tags=["articles"],
 )
 def get_articles(
-    page: int = Query(1, ge=1, description="페이지 번호 (1부터 시작)"),
+    page: int = Query(1, ge=1, le=MAX_PAGE, description=f"페이지 번호 (1~{MAX_PAGE})"),
     size: int = Query(20, ge=1, le=100, description="페이지당 기사 수 (최대 100)"),
-    category: Optional[str] = Query(None, description="대분류 필터 (예: IT/과학, 경제)"),
-    source: Optional[str] = Query(None, description="출처 필터 (예: devto, google_news)"),
-    q: Optional[str] = Query(None, description="원문/번역 제목, 본문 또는 요약 검색어"),
+    category: Optional[str] = Query(
+        None, max_length=MAX_FILTER_LENGTH, description="대분류 필터 (예: IT/과학, 경제)"
+    ),
+    source: Optional[str] = Query(
+        None, max_length=MAX_FILTER_LENGTH, description="출처 필터 (예: devto, google_news)"
+    ),
+    q: Optional[str] = Query(
+        None, max_length=MAX_SEARCH_QUERY_LENGTH, description="원문/번역 제목, 본문 또는 요약 검색어"
+    ),
 ):
+    _reject_nul_byte(category, "category")
+    _reject_nul_byte(source, "source")
+    _reject_nul_byte(q, "q")
+
+    if page < 1 or page > MAX_PAGE:
+        raise HTTPException(
+            status_code=422,
+            detail=f"page must be between 1 and {MAX_PAGE}",
+        )
+    if size < 1 or size > 100:
+        raise HTTPException(
+            status_code=422,
+            detail="size must be between 1 and 100",
+        )
+
     offset = (page - 1) * size
+    if offset > MAX_OFFSET:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Calculated offset exceeds maximum allowed ({MAX_OFFSET})",
+        )
 
     with _connect() as conn:
         has_trans = _has_translations_table(conn)
@@ -263,91 +385,41 @@ def get_articles(
             conditions.append("a.source = ?")
             params.append(source)
         if q:
+            like_pattern = _escape_like_pattern(q)
             if has_trans:
                 conditions.append(
                     """(
-                        a.title LIKE ?
-                        OR (at.status = 'completed' AND at.translated_title LIKE ?)
-                        OR a.content LIKE ?
-                        OR (at.status = 'completed' AND at.translated_content LIKE ?)
-                        OR COALESCE(aa.summary, a.summary) LIKE ?
+                        a.title LIKE ? ESCAPE '\\'
+                        OR (at.status = 'completed' AND at.translated_title LIKE ? ESCAPE '\\')
+                        OR a.content LIKE ? ESCAPE '\\'
+                        OR (at.status = 'completed' AND at.translated_content LIKE ? ESCAPE '\\')
+                        OR COALESCE(aa.summary, a.summary) LIKE ? ESCAPE '\\'
                     )"""
                 )
-                params.extend([f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"])
+                params.extend([like_pattern] * 5)
             else:
                 conditions.append(
-                    "(a.title LIKE ? OR a.content LIKE ? OR COALESCE(aa.summary, a.summary) LIKE ?)"
+                    "(a.title LIKE ? ESCAPE '\\' OR a.content LIKE ? ESCAPE '\\' OR COALESCE(aa.summary, a.summary) LIKE ? ESCAPE '\\')"
                 )
-                params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+                params.extend([like_pattern] * 3)
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-
-        if has_trans:
-            base_query = f"""
-                FROM articles a
-                LEFT JOIN article_analysis aa ON aa.article_id = a.id
-                LEFT JOIN article_translations at
-                    ON at.article_id = a.id
-                    AND at.content_hash = compute_content_hash(a.title, a.content)
-                {where}
+        trans_join = (
             """
-            select_fields = f"""
-                a.id, a.url, a.source,
-                a.published_at, a.crawled_at,
-                a.title AS original_title,
-                a.content AS original_content,
-                CASE
-                    WHEN at.status = 'completed' AND at.translated_title IS NOT NULL AND at.translated_title != ''
-                    THEN at.translated_title
-                    ELSE a.title
-                END AS title,
-                CASE
-                    WHEN at.status = 'completed' AND at.translated_content IS NOT NULL AND at.translated_content != ''
-                    THEN at.translated_content
-                    ELSE a.content
-                END AS content,
-                CASE
-                    WHEN at.status = 'completed' THEN at.translated_title
-                    ELSE NULL
-                END AS translated_title,
-                CASE
-                    WHEN at.status = 'completed' THEN at.translated_content
-                    ELSE NULL
-                END AS translated_content,
-                CASE
-                    WHEN at.status IS NOT NULL THEN at.status
-                    WHEN a.source IN ({_KOREAN_SOURCES_SQL}) THEN 'not_needed'
-                    ELSE 'pending'
-                END AS translation_status,
-                COALESCE(aa.summary, a.summary) AS summary,
-                COALESCE(aa.major_category, a.major_category) AS major_category,
-                COALESCE(aa.sub_category, a.sub_category) AS sub_category,
-                COALESCE(aa.tags, a.tags) AS tags
+            LEFT JOIN article_translations at
+                ON at.article_id = a.id
+                AND at.content_hash = compute_content_hash(a.title, a.content)
             """
-        else:
-            base_query = f"""
-                FROM articles a
-                LEFT JOIN article_analysis aa ON aa.article_id = a.id
-                {where}
-            """
-            select_fields = f"""
-                a.id, a.url, a.source,
-                a.published_at, a.crawled_at,
-                a.title AS original_title,
-                a.content AS original_content,
-                a.title AS title,
-                a.content AS content,
-                NULL AS translated_title,
-                NULL AS translated_content,
-                CASE
-                    WHEN a.source IN ({_KOREAN_SOURCES_SQL}) THEN 'not_needed'
-                    ELSE 'pending'
-                END AS translation_status,
-                COALESCE(aa.summary, a.summary) AS summary,
-                COALESCE(aa.major_category, a.major_category) AS major_category,
-                COALESCE(aa.sub_category, a.sub_category) AS sub_category,
-                COALESCE(aa.tags, a.tags) AS tags
-            """
+            if has_trans
+            else ""
+        )
+        base_query = f"""
+            FROM articles a
+            LEFT JOIN article_analysis aa ON aa.article_id = a.id
+            {trans_join}
+            {where}
+        """
+        select_fields = _article_select_fields(has_trans=has_trans, use_analysis=True)
 
         total = conn.execute(f"SELECT COUNT(*) {base_query}", params).fetchone()[0]
         rows = conn.execute(
@@ -375,79 +447,37 @@ def get_articles(
     description="article_id로 단일 기사의 전체 정보를 반환합니다. 번역 완료 기사는 한국어 번역문을 우선 제공하며, 미번역 시 원문을 반환합니다. 존재하지 않으면 404를 반환합니다.",
     tags=["articles"],
 )
-def get_article(article_id: int):
+def get_article(
+    article_id: int = ApiPath(
+        ...,
+        ge=SQLITE_MIN_INT64,
+        le=SQLITE_MAX_INT64,
+        description="조회할 기사 ID (SQLite 64비트 정수 범위)",
+    ),
+):
     with _connect() as conn:
         has_trans = _has_translations_table(conn)
-        if has_trans:
-            row = conn.execute(
-                f"""
-                SELECT
-                    a.id, a.url, a.source,
-                    a.published_at, a.crawled_at,
-                    a.title AS original_title,
-                    a.content AS original_content,
-                    CASE
-                        WHEN at.status = 'completed' AND at.translated_title IS NOT NULL AND at.translated_title != ''
-                        THEN at.translated_title
-                        ELSE a.title
-                    END AS title,
-                    CASE
-                        WHEN at.status = 'completed' AND at.translated_content IS NOT NULL AND at.translated_content != ''
-                        THEN at.translated_content
-                        ELSE a.content
-                    END AS content,
-                    CASE
-                        WHEN at.status = 'completed' THEN at.translated_title
-                        ELSE NULL
-                    END AS translated_title,
-                    CASE
-                        WHEN at.status = 'completed' THEN at.translated_content
-                        ELSE NULL
-                    END AS translated_content,
-                    CASE
-                        WHEN at.status IS NOT NULL THEN at.status
-                        WHEN a.source IN ({_KOREAN_SOURCES_SQL}) THEN 'not_needed'
-                        ELSE 'pending'
-                    END AS translation_status,
-                    COALESCE(aa.summary, a.summary) AS summary,
-                    COALESCE(aa.major_category, a.major_category) AS major_category,
-                    COALESCE(aa.sub_category, a.sub_category) AS sub_category,
-                    COALESCE(aa.tags, a.tags) AS tags
-                FROM articles a
-                LEFT JOIN article_analysis aa ON aa.article_id = a.id
-                LEFT JOIN article_translations at
-                    ON at.article_id = a.id
-                    AND at.content_hash = compute_content_hash(a.title, a.content)
-                WHERE a.id = ?
-                """,
-                (article_id,),
-            ).fetchone()
-        else:
-            row = conn.execute(
-                f"""
-                SELECT
-                    a.id, a.url, a.source,
-                    a.published_at, a.crawled_at,
-                    a.title AS original_title,
-                    a.content AS original_content,
-                    a.title AS title,
-                    a.content AS content,
-                    NULL AS translated_title,
-                    NULL AS translated_content,
-                    CASE
-                        WHEN a.source IN ({_KOREAN_SOURCES_SQL}) THEN 'not_needed'
-                        ELSE 'pending'
-                    END AS translation_status,
-                    COALESCE(aa.summary, a.summary) AS summary,
-                    COALESCE(aa.major_category, a.major_category) AS major_category,
-                    COALESCE(aa.sub_category, a.sub_category) AS sub_category,
-                    COALESCE(aa.tags, a.tags) AS tags
-                FROM articles a
-                LEFT JOIN article_analysis aa ON aa.article_id = a.id
-                WHERE a.id = ?
-                """,
-                (article_id,),
-            ).fetchone()
+        trans_join = (
+            """
+            LEFT JOIN article_translations at
+                ON at.article_id = a.id
+                AND at.content_hash = compute_content_hash(a.title, a.content)
+            """
+            if has_trans
+            else ""
+        )
+        select_fields = _article_select_fields(has_trans=has_trans, use_analysis=True)
+        row = conn.execute(
+            f"""
+            SELECT
+                {select_fields}
+            FROM articles a
+            LEFT JOIN article_analysis aa ON aa.article_id = a.id
+            {trans_join}
+            WHERE a.id = ?
+            """,
+            (article_id,),
+        ).fetchone()
 
     if not row:
         raise HTTPException(status_code=404, detail="Article not found")
@@ -515,6 +545,260 @@ def _article_time(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
+@dataclass
+class _BriefingCacheEntry:
+    fingerprint: tuple
+    computed_utc: datetime
+    computed_monotonic: float
+    response: dict
+
+
+@dataclass
+class _BriefingInFlight:
+    event: threading.Event
+    computed_utc: datetime
+    result: Optional[dict] = None
+    error: Optional[BaseException] = None
+
+
+_briefing_cache_lock = threading.Lock()
+_briefing_cache: dict[str, _BriefingCacheEntry] = {}
+_briefing_inflight: dict[tuple[str, tuple], _BriefingInFlight] = {}
+
+
+def _clear_briefing_cache() -> None:
+    """테스트 등에서 브리핑 캐시를 초기화한다."""
+    with _briefing_cache_lock:
+        _briefing_cache.clear()
+
+
+def _clone_briefing_response(payload: dict) -> dict:
+    return {
+        **payload,
+        "articles": [
+            {
+                **article,
+                "tags": list(article.get("tags") or []),
+            }
+            for article in payload["articles"]
+        ],
+    }
+
+
+def _get_db_cache_key_and_fingerprint() -> tuple[str, Optional[tuple]]:
+    db_path = _get_active_db_path()
+    raw = str(db_path)
+    if raw == ":memory:" or raw.startswith("file:"):
+        return raw, None
+    try:
+        resolved = db_path.resolve()
+        st = resolved.stat()
+    except OSError:
+        return raw, None
+
+    # SQLite 파일 헤더 오프셋 24~27의 file change counter로 커밋 변경을 감지한다.
+    change_counter: Optional[bytes] = None
+    try:
+        with resolved.open("rb") as fh:
+            fh.seek(24)
+            data = fh.read(4)
+            if len(data) == 4:
+                change_counter = data
+    except OSError:
+        pass
+
+    # WAL 모드에서는 체크포인트 전까지 -wal 파일에만 기록되므로 함께 확인한다.
+    wal_sig: Optional[tuple] = None
+    wal_path = Path(f"{resolved}-wal")
+    try:
+        wst = wal_path.stat()
+        with wal_path.open("rb") as wfh:
+            wal_header = wfh.read(32)
+        wal_sig = (wst.st_mtime_ns, wst.st_size, wal_header)
+    except OSError:
+        pass
+
+    fingerprint = (st.st_ino, st.st_mtime_ns, st.st_size, change_counter, wal_sig)
+    return str(resolved), fingerprint
+
+
+def _compact_briefing_candidates(
+    candidates: list[tuple[datetime, int, str, str]],
+    limit: int = BRIEFING_MAX_ARTICLES,
+) -> list[tuple[datetime, int, str, str]]:
+    """선정 우선순위 4개 버킷을 보존하며 후보 풀을 상수 크기로 압축한다."""
+    if len(candidates) <= limit:
+        return candidates
+
+    ordered = sorted(candidates, key=lambda item: (item[0], item[1]), reverse=True)
+    kept: list[tuple[datetime, int, str, str]] = []
+    kept_ids: set[int] = set()
+
+    def admit(item: tuple[datetime, int, str, str]) -> None:
+        aid = item[1]
+        if aid not in kept_ids:
+            kept_ids.add(aid)
+            kept.append(item)
+
+    # 1. (False, False) 버킷: 전체 상위 limit건
+    for item in ordered[:limit]:
+        admit(item)
+
+    # 2. (False, True) 버킷: 출처별 최상위 1건씩 최대 limit개 출처
+    seen_sources: set[str] = set()
+    for item in ordered:
+        source = item[2]
+        if source not in seen_sources:
+            seen_sources.add(source)
+            admit(item)
+            if len(seen_sources) >= limit:
+                break
+
+    # 3. (True, False) 버킷: 비어 있지 않은 주제별 최상위 1건씩 최대 limit개 주제
+    seen_topics: set[str] = set()
+    for item in ordered:
+        topic = item[3]
+        if topic and topic not in seen_topics:
+            seen_topics.add(topic)
+            admit(item)
+            if len(seen_topics) >= limit:
+                break
+
+    # 4. (True, True) 버킷: 각 주제·출처 최대 limit건, 전체 최대 2*(limit-1)*limit + 1건
+    max_tt = 2 * (limit - 1) * limit + 1
+    tt_count = 0
+    seen_pairs: set[tuple[str, str]] = set()
+    topic_counts: dict[str, int] = {}
+    source_counts: dict[str, int] = {}
+    for item in ordered:
+        topic = item[3]
+        if not topic:
+            continue
+        source = item[2]
+        pair = (topic, source)
+        if pair in seen_pairs:
+            continue
+        if topic_counts.get(topic, 0) >= limit or source_counts.get(source, 0) >= limit:
+            continue
+        seen_pairs.add(pair)
+        topic_counts[topic] = topic_counts.get(topic, 0) + 1
+        source_counts[source] = source_counts.get(source, 0) + 1
+        admit(item)
+        tt_count += 1
+        if tt_count >= max_tt:
+            break
+
+    return kept
+
+
+def _select_briefing_ids(
+    candidates: list[tuple[datetime, int, str, str]],
+    limit: int = BRIEFING_MAX_ARTICLES,
+) -> list[int]:
+    remaining = list(candidates)
+    selected_ids: list[int] = []
+    sources: set[str] = set()
+    topics: set[str] = set()
+    while remaining and len(selected_ids) < limit:
+        chosen = max(
+            remaining,
+            key=lambda item: (
+                bool(item[3]) and item[3] not in topics,
+                item[2] not in sources,
+                item[0],
+                item[1],
+            ),
+        )
+        remaining.remove(chosen)
+        selected_ids.append(chosen[1])
+        sources.add(chosen[2])
+        topics.add(chosen[3])
+    return selected_ids
+
+
+def _compute_briefing(now: datetime) -> dict:
+    start = now - timedelta(hours=24)
+    pool: list[tuple[datetime, int, str, str]] = []
+
+    with _connect() as conn:
+        cursor = conn.execute(
+            """
+            SELECT a.id, a.source, a.published_at, a.crawled_at, a.sub_category
+            FROM articles a
+            WHERE a.major_category = ?
+            """,
+            ("AI",),
+        )
+        try:
+            while True:
+                batch = cursor.fetchmany(BRIEFING_SCAN_BATCH_SIZE)
+                if not batch:
+                    break
+                for row in batch:
+                    published = _article_time(row["published_at"]) or _article_time(row["crawled_at"])
+                    if published is None or not (start <= published <= now):
+                        continue
+                    topic = (row["sub_category"] or "").strip()
+                    pool.append((published, row["id"], row["source"], topic))
+                if len(pool) >= BRIEFING_COMPACT_THRESHOLD:
+                    pool = _compact_briefing_candidates(pool)
+        finally:
+            cursor.close()
+
+        selected_ids = _select_briefing_ids(pool)
+        if not selected_ids:
+            selected = []
+        else:
+            has_trans = _has_translations_table(conn)
+            placeholders = ", ".join("?" for _ in selected_ids)
+            trans_join = (
+                """
+                LEFT JOIN article_translations at
+                    ON at.article_id = a.id
+                    AND at.content_hash = compute_content_hash(a.title, a.content)
+                """
+                if has_trans
+                else ""
+            )
+            select_fields = _article_select_fields(has_trans=has_trans, use_analysis=False)
+            rows = conn.execute(
+                f"""
+                SELECT
+                    {select_fields}
+                FROM articles a
+                {trans_join}
+                WHERE a.id IN ({placeholders})
+                """,
+                selected_ids,
+            ).fetchall()
+            by_id = {row["id"]: _row_to_dict(row) for row in rows}
+            selected = [by_id[aid] for aid in selected_ids if aid in by_id]
+
+    return {
+        "generated_at": now.isoformat(),
+        "window_start": start.isoformat(),
+        "window_end": now.isoformat(),
+        "selection_method": "주제·출처 다양성, 최신순을 반영한 규칙 기반 선정",
+        "articles": selected,
+    }
+
+
+def _is_cache_entry_fresh(
+    entry: _BriefingCacheEntry,
+    fingerprint: tuple,
+    now: datetime,
+    monotonic_now: float,
+) -> bool:
+    if entry.fingerprint != fingerprint:
+        return False
+    monotonic_elapsed = monotonic_now - entry.computed_monotonic
+    utc_elapsed = (now - entry.computed_utc).total_seconds()
+    return (
+        -1.0 <= monotonic_elapsed < BRIEFING_CACHE_TTL_SECONDS
+        and -1.0 <= utc_elapsed < BRIEFING_CACHE_TTL_SECONDS
+    )
+
+
 @app.get(
     "/briefing",
     response_model=BriefingResponse,
@@ -524,109 +808,67 @@ def _article_time(value: Optional[str]) -> Optional[datetime]:
 )
 def get_briefing():
     now = _utc_now()
-    start = now - timedelta(hours=24)
-    with _connect() as conn:
-        has_trans = _has_translations_table(conn)
-        if has_trans:
-            rows = conn.execute(
-                f"""
-                SELECT
-                    a.id, a.url, a.source,
-                    a.published_at, a.crawled_at,
-                    a.title AS original_title,
-                    a.content AS original_content,
-                    CASE
-                        WHEN at.status = 'completed' AND at.translated_title IS NOT NULL AND at.translated_title != ''
-                        THEN at.translated_title
-                        ELSE a.title
-                    END AS title,
-                    CASE
-                        WHEN at.status = 'completed' AND at.translated_content IS NOT NULL AND at.translated_content != ''
-                        THEN at.translated_content
-                        ELSE a.content
-                    END AS content,
-                    CASE
-                        WHEN at.status = 'completed' THEN at.translated_title
-                        ELSE NULL
-                    END AS translated_title,
-                    CASE
-                        WHEN at.status = 'completed' THEN at.translated_content
-                        ELSE NULL
-                    END AS translated_content,
-                    CASE
-                        WHEN at.status IS NOT NULL THEN at.status
-                        WHEN a.source IN ({_KOREAN_SOURCES_SQL}) THEN 'not_needed'
-                        ELSE 'pending'
-                    END AS translation_status,
-                    a.summary AS summary,
-                    a.major_category AS major_category,
-                    a.sub_category AS sub_category,
-                    a.tags AS tags
-                FROM articles a
-                LEFT JOIN article_translations at
-                    ON at.article_id = a.id
-                    AND at.content_hash = compute_content_hash(a.title, a.content)
-                WHERE a.major_category = ?
-                """,
-                ("AI",),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                f"""
-                SELECT
-                    a.id, a.url, a.source,
-                    a.published_at, a.crawled_at,
-                    a.title AS original_title,
-                    a.content AS original_content,
-                    a.title AS title,
-                    a.content AS content,
-                    NULL AS translated_title,
-                    NULL AS translated_content,
-                    CASE
-                        WHEN a.source IN ({_KOREAN_SOURCES_SQL}) THEN 'not_needed'
-                        ELSE 'pending'
-                    END AS translation_status,
-                    a.summary AS summary,
-                    a.major_category AS major_category,
-                    a.sub_category AS sub_category,
-                    a.tags AS tags
-                FROM articles a
-                WHERE a.major_category = ?
-                """,
-                ("AI",),
-            ).fetchall()
+    monotonic_now = time.monotonic()
+    db_key, fingerprint = _get_db_cache_key_and_fingerprint()
+    if fingerprint is None:
+        return _compute_briefing(now)
 
-    candidates = []
-    for row in rows:
-        article = _row_to_dict(row)
-        published = _article_time(article["published_at"]) or _article_time(article["crawled_at"])
-        if published is not None and start <= published <= now:
-            candidates.append((article, published))
+    inflight_key = (db_key, fingerprint)
+    leader = False
+    flight: Optional[_BriefingInFlight] = None
 
-    selected = []
-    sources, topics = set(), set()
-    while candidates and len(selected) < 5:
-        def priority(candidate):
-            article, published = candidate
-            topic = (article.get("sub_category") or "").strip()
-            return (
-                bool(topic) and topic not in topics,
-                article["source"] not in sources,
-                published,
-                article["id"],
+    with _briefing_cache_lock:
+        entry = _briefing_cache.get(db_key)
+        if entry is not None and _is_cache_entry_fresh(entry, fingerprint, now, monotonic_now):
+            # LRU 순서 갱신
+            _briefing_cache[db_key] = _briefing_cache.pop(db_key)
+            return _clone_briefing_response(entry.response)
+
+        flight = _briefing_inflight.get(inflight_key)
+        if flight is None:
+            flight = _BriefingInFlight(event=threading.Event(), computed_utc=now)
+            _briefing_inflight[inflight_key] = flight
+            leader = True
+
+    if not leader:
+        finished = flight.event.wait(timeout=BRIEFING_INFLIGHT_WAIT_TIMEOUT_SECONDS)
+        if finished:
+            if flight.error is not None:
+                raise flight.error
+            if (
+                flight.result is not None
+                and abs((now - flight.computed_utc).total_seconds()) < BRIEFING_CACHE_TTL_SECONDS
+            ):
+                return _clone_briefing_response(flight.result)
+        return _compute_briefing(now)
+
+    try:
+        result = _compute_briefing(now)
+    except BaseException as exc:
+        with _briefing_cache_lock:
+            flight.error = exc
+            if _briefing_inflight.get(inflight_key) is flight:
+                _briefing_inflight.pop(inflight_key, None)
+            flight.event.set()
+        raise
+
+    finished_monotonic = time.monotonic()
+    _, current_fp = _get_db_cache_key_and_fingerprint()
+    with _briefing_cache_lock:
+        if current_fp == fingerprint:
+            _briefing_cache.pop(db_key, None)
+            while len(_briefing_cache) >= BRIEFING_CACHE_MAX_ENTRIES:
+                oldest_key = next(iter(_briefing_cache))
+                _briefing_cache.pop(oldest_key, None)
+            _briefing_cache[db_key] = _BriefingCacheEntry(
+                fingerprint=fingerprint,
+                computed_utc=now,
+                computed_monotonic=finished_monotonic,
+                response=result,
             )
+        flight.result = result
+        if _briefing_inflight.get(inflight_key) is flight:
+            _briefing_inflight.pop(inflight_key, None)
+        flight.event.set()
 
-        chosen = max(candidates, key=priority)
-        candidates.remove(chosen)
-        article = chosen[0]
-        selected.append(article)
-        sources.add(article["source"])
-        topics.add((article.get("sub_category") or "").strip())
-
-    return {
-        "generated_at": now.isoformat(),
-        "window_start": start.isoformat(),
-        "window_end": now.isoformat(),
-        "selection_method": "주제·출처 다양성, 최신순을 반영한 규칙 기반 선정",
-        "articles": selected,
-    }
+    return _clone_briefing_response(result)
