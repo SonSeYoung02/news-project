@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 DB_PATH = Path(os.environ.get("DB_PATH", str(Path(__file__).parent / "news.db")))
+CRAWL_LOCK_PATH = Path(os.environ.get("CRAWL_LOCK_PATH", f"{DB_PATH}.crawl.lock"))
 ENV_PATH = Path(__file__).parent / ".env"
 
 
