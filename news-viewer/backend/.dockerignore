@@ -1,3 +1,5 @@
 **
 !main.py
 !requirements.txt
+!app/
+!app/**/*.py
