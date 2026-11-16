@@ -4,6 +4,7 @@ import os
 import socket
 import ssl
 import threading
+import time
 import unittest
 import zlib
 from unittest.mock import patch
@@ -395,6 +396,306 @@ class TestStreamingSizeBudgetAndMime(unittest.TestCase):
             with httpx.Client(transport=httpx.MockTransport(respond)) as client:
                 with self.assertRaises(RequestBudgetExceededError):
                     safe_get(client, "https://publisher.example/slow", timeout=1.0)
+
+    def test_slow_trickle_one_byte_chunks_aborts_within_budget(self):
+        pulled = {"count": 0}
+
+        class SlowTrickleStream(httpx.SyncByteStream):
+            def __iter__(self):
+                for _ in range(20):
+                    pulled["count"] += 1
+                    time.sleep(0.04)
+                    yield b"x"
+
+        def respond(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, stream=SlowTrickleStream(), headers={"Content-Type": "text/plain"})
+
+        start = time.monotonic()
+        with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+            with self.assertRaises(RequestBudgetExceededError):
+                safe_get(client, "https://publisher.example/trickle", timeout=0.2)
+        elapsed = time.monotonic() - start
+        self.assertLess(elapsed, 0.45)
+        self.assertLess(pulled["count"], 15)
+
+    def test_real_tcp_stream_enforces_cumulative_deadline_across_header_and_body_pauses(self):
+        public_record = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 80))]
+        server_errors: list[Exception] = []
+
+        class SlowHandler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_GET(self):
+                try:
+                    if self.path == "/pause-after-byte":
+                        # 0.14s 대기 후 헤더+1바이트 전송, 이후 0.35s 대기(정적 hop read=0.25s였다면 0.39s까지 기다리지만 누적 deadline은 ~0.25s에 중단)
+                        time.sleep(0.14)
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/plain")
+                        self.send_header("Content-Length", "2")
+                        self.end_headers()
+                        self.wfile.write(b"A")
+                        self.wfile.flush()
+                        time.sleep(0.35)
+                        self.wfile.write(b"B")
+                        self.wfile.flush()
+                    elif self.path == "/trickle":
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/plain")
+                        self.send_header("Content-Length", "30")
+                        self.end_headers()
+                        for _ in range(30):
+                            time.sleep(0.04)
+                            self.wfile.write(b"x")
+                            self.wfile.flush()
+                    else:
+                        payload = b"ok-keepalive"
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/plain")
+                        self.send_header("Content-Length", str(len(payload)))
+                        self.end_headers()
+                        self.wfile.write(payload)
+                        self.wfile.flush()
+                except OSError as exc:
+                    server_errors.append(exc)
+
+            def log_message(self, format, *args):
+                pass
+
+        class QuietHTTPServer(http.server.ThreadingHTTPServer):
+            def handle_error(self, request, client_address):
+                pass
+
+        server = QuietHTTPServer(("127.0.0.1", 0), SlowHandler)
+        local_port = server.server_address[1]
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+
+        real_socket_cls = socket.socket
+        connected_targets: list[tuple[str, int]] = []
+
+        class RedirectToLocalSocket(real_socket_cls):
+            def connect(self, address):
+                connected_targets.append(address)
+                super().connect(("127.0.0.1", local_port))
+
+        try:
+            with patch("socket.getaddrinfo", return_value=public_record), patch("socket.socket", RedirectToLocalSocket):
+                with create_safe_client() as client:
+                    # 1. keepalive 정상 요청 연속 성공 확인
+                    r1 = safe_get(client, "http://trickle.example/ok1", timeout=2.0)
+                    r2 = safe_get(client, "http://trickle.example/ok2", timeout=2.0)
+                    self.assertEqual(r1.text, "ok-keepalive")
+                    self.assertEqual(r2.text, "ok-keepalive")
+
+                    # 2. 헤더+1바이트 후 0.35s 멈춤 시 남은 예산(~0.11s)만 허용되어 0.33s 미만으로 중단되어야 함
+                    t0 = time.monotonic()
+                    with self.assertRaises(RequestBudgetExceededError):
+                        safe_get(client, "http://trickle.example/pause-after-byte", timeout=0.25)
+                    self.assertLess(time.monotonic() - t0, 0.33)
+
+                with create_safe_client() as client2:
+                    # 3. 1바이트씩 지속 전송(slow-trickle)도 전체 예산 내 중단
+                    t1 = time.monotonic()
+                    with self.assertRaises(RequestBudgetExceededError):
+                        safe_get(client2, "http://trickle.example/trickle", timeout=0.25)
+                    self.assertLess(time.monotonic() - t1, 0.5)
+
+            self.assertTrue(all(addr == ("93.184.216.34", 80) for addr in connected_targets))
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_connect_tcp_shares_single_deadline_across_multiple_sockaddrs(self):
+        import httpcore
+
+        backend = SafeNetworkBackend()
+        multi_records = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.35", 443)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.36", 443)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.37", 443)),
+        ]
+        recorded_timeouts: list[float | None] = []
+
+        class SlowFailSocket:
+            def __init__(self, *args, **kwargs):
+                self._timeout = None
+
+            def settimeout(self, value):
+                self._timeout = value
+                recorded_timeouts.append(value)
+
+            def setsockopt(self, *args):
+                pass
+
+            def connect(self, addr):
+                time.sleep(0.08)
+                raise socket.timeout("timed out")
+
+            def close(self):
+                pass
+
+        start = time.monotonic()
+        with patch("socket.getaddrinfo", return_value=multi_records), patch("socket.socket", SlowFailSocket):
+            with self.assertRaises(httpcore.ConnectTimeout):
+                backend.connect_tcp("multi.example", 443, timeout=0.20)
+        elapsed = time.monotonic() - start
+
+        self.assertLess(elapsed, 0.30)
+        self.assertLess(len(recorded_timeouts), 4)
+        self.assertTrue(all(t is not None and t <= 0.20 for t in recorded_timeouts))
+        if len(recorded_timeouts) >= 2:
+            self.assertLess(recorded_timeouts[-1], recorded_timeouts[0])
+
+    def test_dns_lookup_timeout_and_bounded_worker_threads(self):
+        import httpcore
+
+        backend = SafeNetworkBackend(max_dns_workers=2)
+        unblock = threading.Event()
+        active_lock = threading.Lock()
+        active_count = {"current": 0, "max": 0, "calls": 0}
+
+        def hung_getaddrinfo(*args, **kwargs):
+            with active_lock:
+                active_count["calls"] += 1
+                active_count["current"] += 1
+                active_count["max"] = max(active_count["max"], active_count["current"])
+            try:
+                unblock.wait(timeout=5.0)
+            finally:
+                with active_lock:
+                    active_count["current"] -= 1
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
+
+        try:
+            with patch("socket.getaddrinfo", side_effect=hung_getaddrinfo):
+                for _ in range(6):
+                    t0 = time.monotonic()
+                    with self.assertRaises(httpcore.ConnectTimeout):
+                        backend.connect_tcp("hung-dns.example", 443, timeout=0.04)
+                    self.assertLess(time.monotonic() - t0, 0.25)
+
+            self.assertLessEqual(active_count["max"], 2)
+            self.assertLessEqual(active_count["calls"], 2)
+
+            # safe_get 경로에서도 느린 DNS는 RequestBudgetExceededError로 상한 시간 내 실패해야 함
+            with create_safe_client(
+                transport=SafeHTTPTransport(),
+            ) as client:
+                client._transport._pool._network_backend = backend
+                t1 = time.monotonic()
+                with self.assertRaises(RequestBudgetExceededError):
+                    safe_get(client, "https://hung-dns.example/feed", timeout=0.05)
+                self.assertLess(time.monotonic() - t1, 0.25)
+        finally:
+            unblock.set()
+
+    def test_real_tls_handshake_and_keepalive_reuse_with_deadline_stream(self):
+        try:
+            import datetime as _dt
+            import tempfile
+            from cryptography import x509
+            from cryptography.hazmat.primitives import hashes, serialization
+            from cryptography.hazmat.primitives.asymmetric import rsa
+            from cryptography.x509.oid import NameOID
+        except ImportError:
+            self.skipTest("cryptography 미설치 환경")
+
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "tls-test.example")])
+        now = _dt.datetime.now(_dt.timezone.utc)
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(issuer)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - _dt.timedelta(minutes=5))
+            .not_valid_after(now + _dt.timedelta(hours=1))
+            .add_extension(
+                x509.SubjectAlternativeName([x509.DNSName("tls-test.example")]),
+                critical=False,
+            )
+            .sign(key, hashes.SHA256())
+        )
+
+        with tempfile.NamedTemporaryFile(suffix=".pem", delete=False) as cert_f, tempfile.NamedTemporaryFile(
+            suffix=".pem", delete=False
+        ) as key_f:
+            cert_f.write(cert.public_bytes(serialization.Encoding.PEM))
+            key_f.write(
+                key.private_bytes(
+                    serialization.Encoding.PEM,
+                    serialization.PrivateFormat.TraditionalOpenSSL,
+                    serialization.NoEncryption(),
+                )
+            )
+            cert_path, key_path = cert_f.name, key_f.name
+
+        try:
+            server_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            server_ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
+            client_ctx = ssl.create_default_context(cafile=cert_path)
+
+            class TlsHandler(http.server.BaseHTTPRequestHandler):
+                protocol_version = "HTTP/1.1"
+
+                def do_GET(self):
+                    if self.path == "/slow":
+                        time.sleep(0.25)
+                    body = f"tls:{self.path}".encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/plain")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    self.wfile.flush()
+
+                def log_message(self, format, *args):
+                    pass
+
+            class QuietTlsServer(http.server.ThreadingHTTPServer):
+                def handle_error(self, request, client_address):
+                    pass
+
+            server = QuietTlsServer(("127.0.0.1", 0), TlsHandler)
+            server.socket = server_ctx.wrap_socket(server.socket, server_side=True)
+            local_port = server.server_address[1]
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+
+            real_socket_cls = socket.socket
+            connect_count = {"n": 0}
+
+            class RedirectTlsSocket(real_socket_cls):
+                def connect(self, address):
+                    connect_count["n"] += 1
+                    super().connect(("127.0.0.1", local_port))
+
+            public_record = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
+            try:
+                transport = SafeHTTPTransport(verify=client_ctx)
+                with patch("socket.getaddrinfo", return_value=public_record), patch("socket.socket", RedirectTlsSocket):
+                    with create_safe_client(transport=transport) as client:
+                        r1 = safe_get(client, "https://tls-test.example/one", timeout=2.0)
+                        r2 = safe_get(client, "https://tls-test.example/two", timeout=2.0)
+                        self.assertEqual(r1.text, "tls:/one")
+                        self.assertEqual(r2.text, "tls:/two")
+                        # keepalive 재사용으로 TCP/TLS 연결은 1회만 성립되어야 한다.
+                        self.assertEqual(connect_count["n"], 1)
+
+                        # 동일 keepalive 연결에서도 새 요청의 더 짧은 예산(0.08s)이 적용되어야 한다.
+                        t0 = time.monotonic()
+                        with self.assertRaises(RequestBudgetExceededError):
+                            safe_get(client, "https://tls-test.example/slow", timeout=0.08)
+                        self.assertLess(time.monotonic() - t0, 0.25)
+            finally:
+                server.shutdown()
+                server.server_close()
+        finally:
+            for p in (cert_path, key_path):
+                if os.path.exists(p):
+                    os.remove(p)
 
     def test_disallowed_mime_type_aborts_before_reading_body(self):
         stream = CountingStream(block_size=1024, blocks=5)

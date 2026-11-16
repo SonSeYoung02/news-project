@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import ipaddress
 import socket
 import ssl
+import threading
 import time
 import typing
 import zlib
@@ -14,21 +16,26 @@ from urllib.parse import urlsplit
 
 import httpcore
 from httpcore._backends.sync import SyncStream
-from httpcore._exceptions import ConnectError, ConnectTimeout, map_exceptions
+from httpcore._exceptions import ConnectError, ConnectTimeout, ReadTimeout, WriteTimeout, map_exceptions
 import httpx
 from httpx._config import DEFAULT_LIMITS, create_ssl_context
 
 from config import (
     CRAWL_ALLOWED_PORTS,
     CRAWL_HEADERS,
+    CRAWL_MAX_DNS_WORKERS,
     CRAWL_MAX_RAW_BYTES,
     CRAWL_MAX_REDIRECTS,
     CRAWL_MAX_RESPONSE_BYTES,
     REQUEST_TIMEOUT,
 )
 
-_STREAM_CHUNK_SIZE = 16384
 _MAX_ENCODING_LAYERS = 2
+_ACTIVE_REQUEST_DEADLINE: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "crawl_request_deadline",
+    default=None,
+)
+_DEFAULT_DNS_SEMAPHORE = threading.BoundedSemaphore(CRAWL_MAX_DNS_WORKERS)
 
 _DISALLOWED_HOSTNAMES = frozenset({"localhost", "ip6-localhost", "ip6-loopback"})
 _DISALLOWED_HOST_SUFFIXES = (".localhost", ".local", ".internal", ".arpa")
@@ -221,11 +228,150 @@ def validate_url(
     return hx_url
 
 
-class SafeNetworkBackend(httpcore.SyncBackend):
-    """단일 DNS 조회와 검증된 IP 직접 연결로 DNS 재바인딩을 차단하는 네트워크 백엔드."""
+@contextlib.contextmanager
+def _request_deadline_scope(deadline: float) -> typing.Iterator[None]:
+    token = _ACTIVE_REQUEST_DEADLINE.set(deadline)
+    try:
+        yield
+    finally:
+        _ACTIVE_REQUEST_DEADLINE.reset(token)
 
-    def __init__(self, *, allowed_ports: frozenset[int] = CRAWL_ALLOWED_PORTS) -> None:
+
+class _DeadlineNetworkStream(httpcore.NetworkStream):
+    """요청 전체 deadline의 남은 시간만 각 소켓 I/O 타임아웃으로 전달하는 스트림 래퍼."""
+
+    def __init__(self, inner: httpcore.NetworkStream) -> None:
+        self._inner = inner
+
+    def _effective_timeout(self, timeout: float | None) -> tuple[float | None, float | None]:
+        req_deadline = _ACTIVE_REQUEST_DEADLINE.get()
+        if req_deadline is None:
+            return timeout, None
+        remaining = req_deadline - time.monotonic()
+        if remaining <= 0:
+            raise RequestBudgetExceededError("요청 시간 예산을 초과했습니다.")
+        if timeout is None:
+            return remaining, req_deadline
+        return min(timeout, remaining), req_deadline
+
+    def read(self, max_bytes: int, timeout: float | None = None) -> bytes:
+        effective, req_deadline = self._effective_timeout(timeout)
+        try:
+            return self._inner.read(max_bytes, effective)
+        except ReadTimeout as exc:
+            if req_deadline is not None and time.monotonic() >= req_deadline:
+                raise RequestBudgetExceededError("응답 수신 중 전체 시간 예산을 초과했습니다.") from exc
+            raise
+
+    def write(self, buffer: bytes, timeout: float | None = None) -> None:
+        effective, req_deadline = self._effective_timeout(timeout)
+        try:
+            self._inner.write(buffer, effective)
+        except WriteTimeout as exc:
+            if req_deadline is not None and time.monotonic() >= req_deadline:
+                raise RequestBudgetExceededError("요청 전송 중 전체 시간 예산을 초과했습니다.") from exc
+            raise
+
+    def start_tls(
+        self,
+        ssl_context: ssl.SSLContext,
+        server_hostname: str | None = None,
+        timeout: float | None = None,
+    ) -> httpcore.NetworkStream:
+        effective, req_deadline = self._effective_timeout(timeout)
+        try:
+            tls_stream = self._inner.start_tls(
+                ssl_context=ssl_context,
+                server_hostname=server_hostname,
+                timeout=effective,
+            )
+        except ConnectTimeout as exc:
+            if req_deadline is not None and time.monotonic() >= req_deadline:
+                raise RequestBudgetExceededError("TLS 핸드셰이크 중 전체 시간 예산을 초과했습니다.") from exc
+            raise
+        return _DeadlineNetworkStream(tls_stream)
+
+    def close(self) -> None:
+        self._inner.close()
+
+    def get_extra_info(self, info: str) -> typing.Any:
+        return self._inner.get_extra_info(info)
+
+
+class SafeNetworkBackend(httpcore.SyncBackend):
+    """제한된 DNS 조회와 검증된 IP 직접 연결로 DNS 재바인딩·시간 초과를 차단하는 백엔드."""
+
+    def __init__(
+        self,
+        *,
+        allowed_ports: frozenset[int] = CRAWL_ALLOWED_PORTS,
+        max_dns_workers: int | None = None,
+    ) -> None:
         self._allowed_ports = allowed_ports
+        self._dns_semaphore = (
+            threading.BoundedSemaphore(max_dns_workers)
+            if max_dns_workers is not None
+            else _DEFAULT_DNS_SEMAPHORE
+        )
+
+    @staticmethod
+    def _raise_timeout(req_deadline: float | None, message: str) -> typing.NoReturn:
+        if req_deadline is not None and time.monotonic() >= req_deadline:
+            raise RequestBudgetExceededError(message)
+        raise ConnectTimeout(message)
+
+    def _resolve_addresses(
+        self,
+        host: str,
+        port: int,
+        deadline: float | None,
+        req_deadline: float | None,
+    ) -> list[typing.Any]:
+        if deadline is None:
+            try:
+                return socket.getaddrinfo(host, port, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM)
+            except OSError as exc:
+                raise ConnectError(str(exc)) from exc
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            self._raise_timeout(req_deadline, f"DNS 조회 시간 예산을 초과했습니다: {host}")
+
+        if not self._dns_semaphore.acquire(timeout=remaining):
+            self._raise_timeout(req_deadline, f"DNS 작업 슬롯 대기 시간을 초과했습니다: {host}")
+
+        done = threading.Event()
+        result: list[list[typing.Any]] = []
+        error: list[BaseException] = []
+
+        def _worker() -> None:
+            try:
+                result.append(
+                    socket.getaddrinfo(host, port, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM)
+                )
+            except BaseException as exc:
+                error.append(exc)
+            finally:
+                done.set()
+                self._dns_semaphore.release()
+
+        thread = threading.Thread(target=_worker, name="crawler-dns", daemon=True)
+        try:
+            thread.start()
+        except BaseException:
+            self._dns_semaphore.release()
+            raise
+
+        wait_remaining = deadline - time.monotonic()
+        if wait_remaining <= 0 or not done.wait(timeout=wait_remaining):
+            self._raise_timeout(req_deadline, f"DNS 조회 시간이 초과되었습니다: {host}")
+
+        if error:
+            exc = error[0]
+            if isinstance(exc, OSError):
+                raise ConnectError(str(exc)) from exc
+            raise exc
+        return result[0]
 
     def connect_tcp(
         self,
@@ -239,11 +385,14 @@ class SafeNetworkBackend(httpcore.SyncBackend):
             raise UnsafeURLError(f"허용되지 않는 TCP 포트입니다: {port}")
         validate_host(host)
 
-        try:
-            infos = socket.getaddrinfo(host, port, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM)
-        except OSError as exc:
-            raise ConnectError(str(exc)) from exc
+        req_deadline = _ACTIVE_REQUEST_DEADLINE.get()
+        local_deadline = (time.monotonic() + timeout) if timeout is not None else None
+        if req_deadline is not None and local_deadline is not None:
+            deadline: float | None = min(req_deadline, local_deadline)
+        else:
+            deadline = req_deadline if req_deadline is not None else local_deadline
 
+        infos = self._resolve_addresses(host, port, deadline, req_deadline)
         if not infos:
             raise ConnectError(f"DNS 조회 결과가 없습니다: {host}")
 
@@ -264,10 +413,16 @@ class SafeNetworkBackend(httpcore.SyncBackend):
         last_exc: Exception | None = None
         with map_exceptions(exc_map):
             for family, socktype, proto, sockaddr in validated_targets:
+                attempt_timeout: float | None = None
+                if deadline is not None:
+                    attempt_timeout = deadline - time.monotonic()
+                    if attempt_timeout <= 0:
+                        self._raise_timeout(req_deadline, f"TCP 연결 시간 예산을 초과했습니다: {host}")
+
                 sock: socket.socket | None = None
                 try:
                     sock = socket.socket(family, socktype, proto)
-                    sock.settimeout(timeout)
+                    sock.settimeout(attempt_timeout)
                     if local_address is not None:
                         sock.bind((local_address, 0))
                     # 호스트명이 아니라 검증 완료된 sockaddr IP 튜플로 직접 연결해 2차 DNS 조회를 제거한다.
@@ -275,12 +430,14 @@ class SafeNetworkBackend(httpcore.SyncBackend):
                     for option in socket_options:
                         sock.setsockopt(*option)
                     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                    return SyncStream(sock)
+                    return _DeadlineNetworkStream(SyncStream(sock))
                 except OSError as exc:
                     last_exc = exc
                     if sock is not None:
                         with contextlib.suppress(OSError):
                             sock.close()
+                    if deadline is not None and time.monotonic() >= deadline:
+                        self._raise_timeout(req_deadline, f"TCP 연결 시간 예산을 초과했습니다: {host}")
             if last_exc is not None:
                 raise last_exc
             raise ConnectError(f"연결 대상 주소가 없습니다: {host}")
@@ -478,7 +635,7 @@ def _read_bounded_body(
     decoded_total = 0
     chunks: list[bytes] = []
 
-    for raw_chunk in resp.iter_raw(chunk_size=_STREAM_CHUNK_SIZE):
+    for raw_chunk in resp.iter_raw(chunk_size=None):
         if time.monotonic() > deadline:
             raise RequestBudgetExceededError("응답 스트리밍 중 전체 시간 예산을 초과했습니다.")
 
@@ -555,50 +712,51 @@ def safe_get(
     current_url = validate_url(target, allowed_ports=allowed_ports)
     history: list[httpx.Response] = []
 
-    for hop in range(max_redirects + 1):
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise RequestBudgetExceededError("요청 시간 예산을 초과했습니다.")
+    with _request_deadline_scope(deadline):
+        for hop in range(max_redirects + 1):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RequestBudgetExceededError("요청 시간 예산을 초과했습니다.")
 
-        hop_timeout = httpx.Timeout(
-            remaining,
-            connect=min(10.0, remaining),
-            read=remaining,
-            write=remaining,
-            pool=remaining,
-        )
-
-        with client.stream(
-            "GET",
-            str(current_url),
-            headers=dict(headers) if headers else None,
-            timeout=hop_timeout,
-            follow_redirects=False,
-        ) as resp:
-            if resp.has_redirect_location:
-                if hop >= max_redirects:
-                    raise UnsafeURLError(f"리다이렉트 허용 횟수({max_redirects})를 초과했습니다.")
-                if resp.next_request is None:
-                    raise UnsafeURLError("리다이렉트 대상 URL을 확인할 수 없습니다.")
-                next_url = validate_url(resp.next_request.url, allowed_ports=allowed_ports)
-                history.append(resp)
-                current_url = next_url
-                continue
-
-            if raise_for_status:
-                resp.raise_for_status()
-
-            if resp.status_code < 400:
-                _validate_content_type(resp.headers.get("content-type"), expected_kind)
-            _check_content_length_header(resp, effective_max_raw)
-            body = _read_bounded_body(
-                resp,
-                max_bytes=max_bytes,
-                max_raw_bytes=effective_max_raw,
-                deadline=deadline,
+            hop_timeout = httpx.Timeout(
+                remaining,
+                connect=min(10.0, remaining),
+                read=remaining,
+                write=remaining,
+                pool=remaining,
             )
-            resp.history = history
-            resp._content = body
-            return resp
+
+            with client.stream(
+                "GET",
+                str(current_url),
+                headers=dict(headers) if headers else None,
+                timeout=hop_timeout,
+                follow_redirects=False,
+            ) as resp:
+                if resp.has_redirect_location:
+                    if hop >= max_redirects:
+                        raise UnsafeURLError(f"리다이렉트 허용 횟수({max_redirects})를 초과했습니다.")
+                    if resp.next_request is None:
+                        raise UnsafeURLError("리다이렉트 대상 URL을 확인할 수 없습니다.")
+                    next_url = validate_url(resp.next_request.url, allowed_ports=allowed_ports)
+                    history.append(resp)
+                    current_url = next_url
+                    continue
+
+                if raise_for_status:
+                    resp.raise_for_status()
+
+                if resp.status_code < 400:
+                    _validate_content_type(resp.headers.get("content-type"), expected_kind)
+                _check_content_length_header(resp, effective_max_raw)
+                body = _read_bounded_body(
+                    resp,
+                    max_bytes=max_bytes,
+                    max_raw_bytes=effective_max_raw,
+                    deadline=deadline,
+                )
+                resp.history = history
+                resp._content = body
+                return resp
 
     raise UnsafeURLError(f"리다이렉트 허용 횟수({max_redirects})를 초과했습니다.")
