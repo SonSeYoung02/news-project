@@ -1,23 +1,13 @@
-import { useEffect, useState, useRef, useReducer } from "react";
+import { useEffect, useState } from "react";
 import ArticleBody from "./features/articles/ArticleBody.jsx";
-import { articleReducer, initialArticleState } from "./features/articles/articleState.js";
-import { fetchJSON } from "./api/client.js";
+import { useArticleState, useArticles } from "./features/articles/useArticles.js";
+import useBriefing from "./features/briefing/useBriefing.js";
+import useMediaQuery from "./hooks/useMediaQuery.js";
 import SourceMark from "./components/SourceMark.jsx";
 import { ACCENT, ACCENT_LIGHT, ACCENT_DARK, BORDER, TEXT_SECONDARY, TEXT_MUTED } from "./styles/theme.js";
 import { formatDate } from "./utils/formatDate.js";
 
 const COMPACT_QUERY = "(max-width: 1023px)";
-
-const SOURCE_FILTERS = [
-  "네이버뉴스",
-  "Google News",
-  "GeekNews",
-  "Reddit AI",
-  "GitHub Trending",
-  "Hugging Face",
-  "arXiv",
-  "dev.to",
-];
 
 const s = {
   layout: {
@@ -565,163 +555,40 @@ const s = {
 
 export default function App() {
   const [view, setView] = useState("briefing");
-  const [briefing, setBriefing] = useState(null);
-  const [briefingLoading, setBriefingLoading] = useState(true);
-  const [briefingError, setBriefingError] = useState("");
-  const [briefingRetry, setBriefingRetry] = useState(0);
-
-  const [sources, setSources] = useState([]);
-  const [totalAll, setTotalAll] = useState(0);
-  const [page, setPage] = useState(1);
-  const [selectedSource, setSelectedSource] = useState("");
-  const [query, setQuery] = useState("");
-  const [search, setSearch] = useState("");
-  const [fetchRev, setFetchRev] = useState(0);
-  const [metadataError, setMetadataError] = useState("");
-  const [isCompact, setIsCompact] = useState(() => window.matchMedia(COMPACT_QUERY).matches);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const isCompact = useMediaQuery(COMPACT_QUERY, () => setFiltersOpen(false));
 
-  const [articleState, dispatch] = useReducer(articleReducer, initialArticleState);
-  const { articles, total, loading, error, selected } = articleState;
+  // hook 호출 순서가 곧 effect 실행 순서다: 기사 상태 → 브리핑 → 기사 피드 → 자동 선택.
+  const articleState = useArticleState({ view, isCompact });
+  const {
+    articles,
+    loading,
+    error,
+    selected,
+    setSelected,
+    isCompactRef,
+    listRef,
+    handleSelectArticle,
+    handleBackToList,
+  } = articleState;
 
-  const setSelected = (articleOrUpdater) => {
-    dispatch({ type: "SELECT_ARTICLE", payload: articleOrUpdater });
-  };
+  const { briefing, briefingLoading, briefingError, retryBriefing } = useBriefing({ view, setSelected, isCompactRef });
 
-  const reqIdRef = useRef(0);
-  const activeReqRef = useRef(0);
-
-  const viewRef = useRef(view);
-  useEffect(() => {
-    viewRef.current = view;
-  }, [view]);
-
-  const isCompactRef = useRef(isCompact);
-  useEffect(() => {
-    isCompactRef.current = isCompact;
-    dispatch({ type: "RESIZE_VIEWPORT", isCompact, view });
-  }, [isCompact, view]);
-
-  const listRef = useRef(null);
-  const listScrollPos = useRef(0);
-
-  const handleSelectArticle = (article) => {
-    if (listRef.current) {
-      listScrollPos.current = listRef.current.scrollTop;
-    }
-    setSelected(article);
-  };
-
-  const handleBackToList = () => {
-    setSelected(null);
-  };
-
-  useEffect(() => {
-    if (!selected && isCompact && listRef.current && listScrollPos.current > 0) {
-      requestAnimationFrame(() => {
-        if (listRef.current) {
-          listRef.current.scrollTop = listScrollPos.current;
-        }
-      });
-    }
-  }, [selected, isCompact]);
-
-  const SIZE = 20;
-
-  useEffect(() => {
-    if (view !== "briefing") return;
-    const controller = new AbortController();
-    setSelected(null);
-    setBriefingLoading(true);
-    setBriefingError("");
-    fetchJSON("/briefing", controller.signal)
-      .then((data) => {
-        setBriefing(data);
-        if (!isCompactRef.current && (data?.articles || []).length > 0) {
-          setSelected(data.articles[0]);
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setBriefingError("브리핑을 불러오지 못했습니다.");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setBriefingLoading(false);
-      });
-    return () => controller.abort();
-  }, [view, briefingRetry]);
-
-  useEffect(() => {
-    const media = window.matchMedia(COMPACT_QUERY);
-    const onChange = (event) => {
-      setIsCompact(event.matches);
-      setFiltersOpen(false);
-    };
-    media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    Promise.all([
-      fetchJSON("/sources", controller.signal),
-      fetchJSON("/articles?page=1&size=1", controller.signal),
-    ])
-      .then(([sourceData, articleData]) => {
-        setSources(sourceData);
-        setTotalAll(articleData.total);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setMetadataError("필터 정보를 불러오지 못했습니다. 서버 연결을 확인해 주세요.");
-      });
-    return () => controller.abort();
-  }, []);
-
-  const startFetch = () => {
-    const nextReqId = ++reqIdRef.current;
-    dispatch({ type: "START_FETCH", requestId: nextReqId, view: viewRef.current });
-    return nextReqId;
-  };
-
-  const triggerFetch = () => {
-    startFetch();
-    setFetchRev((r) => r + 1);
-  };
-
-  useEffect(() => {
-    const controller = new AbortController();
-    let currentReqId = reqIdRef.current;
-    if (activeReqRef.current === currentReqId) {
-      currentReqId = startFetch();
-    }
-    activeReqRef.current = currentReqId;
-
-    const params = new URLSearchParams({ page, size: SIZE });
-    if (selectedSource) params.set("source", selectedSource);
-    if (search) params.set("q", search);
-
-    fetchJSON(`/articles?${params}`, controller.signal)
-      .then((data) => {
-        dispatch({
-          type: "FETCH_SUCCESS",
-          requestId: currentReqId,
-          articles: data.articles,
-          total: data.total,
-          isCompact: isCompactRef.current,
-          view: viewRef.current,
-        });
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          dispatch({
-            type: "FETCH_ERROR",
-            requestId: currentReqId,
-            error: "기사를 불러오지 못했습니다. 서버 연결을 확인해 주세요.",
-          });
-        }
-      });
-
-    return () => controller.abort();
-  }, [page, selectedSource, search, fetchRev]);
+  const {
+    page,
+    selectedSource,
+    query,
+    setQuery,
+    search,
+    metadataError,
+    totalPages,
+    sourceItems,
+    toggleSource,
+    resetFilters,
+    resetSearch,
+    submitSearch,
+    changePage,
+  } = useArticles(articleState);
 
   useEffect(() => {
     if (view === "briefing" && !isCompact && !briefingLoading && !selected && (briefing?.articles || []).length > 0) {
@@ -735,59 +602,30 @@ export default function App() {
     }
   }, [view, isCompact, loading, selected, articles]);
 
-  const totalPages = Math.ceil(total / SIZE);
-  const sourceItems = [
-    { source: "", count: totalAll },
-    ...SOURCE_FILTERS.map((source) => ({
-      source,
-      count: sources.find((item) => item.source === source)?.count ?? 0,
-    })),
-  ];
-
   const handleSourceClick = (src) => {
     setView("articles");
     setFiltersOpen(false);
-    triggerFetch();
-    setSelectedSource((prev) => (prev === src ? "" : src));
-    setPage(1);
-    listScrollPos.current = 0;
-    if (listRef.current) listRef.current.scrollTop = 0;
+    toggleSource(src);
   };
 
   const handleResetFilters = () => {
     setView("articles");
-    triggerFetch();
-    setSelectedSource("");
-    setPage(1);
-    listScrollPos.current = 0;
-    if (listRef.current) listRef.current.scrollTop = 0;
+    resetFilters();
   };
 
   const handleResetSearch = () => {
     setView("articles");
-    triggerFetch();
-    setQuery("");
-    setSearch("");
-    setPage(1);
-    listScrollPos.current = 0;
-    if (listRef.current) listRef.current.scrollTop = 0;
+    resetSearch();
   };
 
   const handleSearchSubmit = (e) => {
     e?.preventDefault();
     setView("articles");
-    triggerFetch();
-    setSearch(query);
-    setPage(1);
-    listScrollPos.current = 0;
-    if (listRef.current) listRef.current.scrollTop = 0;
+    submitSearch();
   };
 
   const handlePageChange = (newPage) => {
-    triggerFetch();
-    setPage(newPage);
-    listScrollPos.current = 0;
-    if (listRef.current) listRef.current.scrollTop = 0;
+    changePage(newPage);
   };
 
   return (
@@ -932,7 +770,7 @@ export default function App() {
                   type="button"
                   style={s.filterButton}
                   disabled={briefingLoading}
-                  onClick={() => setBriefingRetry((n) => n + 1)}
+                  onClick={retryBriefing}
                 >
                   새로고침
                 </button>
@@ -945,7 +783,7 @@ export default function App() {
             {view === "briefing" && briefingError && (
               <div role="alert" style={s.error}>
                 {briefingError}{" "}
-                <button type="button" style={s.filterButton} onClick={() => setBriefingRetry((n) => n + 1)}>
+                <button type="button" style={s.filterButton} onClick={retryBriefing}>
                   다시 시도
                 </button>
               </div>
