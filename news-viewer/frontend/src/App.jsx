@@ -1,17 +1,13 @@
 import { useEffect, useState, useRef, useReducer } from "react";
 import ArticleBody from "./ArticleBody";
 import { articleReducer, initialArticleState } from "./articleState.js";
+import { fetchJSON } from "./api/client.js";
+import SourceMark from "./components/SourceMark.jsx";
+import { ACCENT, ACCENT_LIGHT, ACCENT_DARK, BORDER, TEXT_SECONDARY, TEXT_MUTED } from "./styles/theme.js";
+import { formatDate } from "./utils/formatDate.js";
 
-const API = "/api";
 const COMPACT_QUERY = "(max-width: 1023px)";
 
-const ACCENT = "#258347";
-const ACCENT_LIGHT = "#edf5ef";
-const ACCENT_MID = "#3d8b56";
-const ACCENT_DARK = "#1e6837";
-const BORDER = "#e4e8e4";
-const TEXT_SECONDARY = "#4a574e";
-const TEXT_MUTED = "#525e55";
 const SOURCE_FILTERS = [
   "네이버뉴스",
   "Google News",
@@ -22,56 +18,6 @@ const SOURCE_FILTERS = [
   "arXiv",
   "dev.to",
 ];
-
-const SOURCE_MARKS = {
-  "네이버뉴스": ["N", "#1b874b", "#edf7ef"],
-  "Google News": ["G", "#34629e", "#edf3fc"],
-  GeekNews: ["GN", "#9e5c2c", "#fcf3ec"],
-  "Reddit AI": ["R", "#b35732", "#fcf1ec"],
-  "GitHub Trending": ["GH", "#36413a", "#edf1ee"],
-  "Hugging Face": ["HF", "#8a6a20", "#fdf8e8"],
-  arXiv: ["aX", "#9c4040", "#fdf0f0"],
-  "dev.to": ["d", "#3f4c45", "#edf1ee"],
-};
-
-function SourceMark({ source, size = 18 }) {
-  const [label, color, background] = SOURCE_MARKS[source] || [source?.slice(0, 2) || "뉴스", "#455348", "#edf1ee"];
-  return (
-    <span
-      aria-hidden="true"
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        width: size,
-        height: size,
-        borderRadius: 4,
-        fontSize: size <= 18 ? 9 : 10,
-        lineHeight: 1,
-        fontWeight: 700,
-        color,
-        background,
-        flexShrink: 0,
-        letterSpacing: "-0.3px",
-      }}
-    >
-      {label}
-    </span>
-  );
-}
-
-function formatDate(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
-  return new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "short", day: "numeric" }).format(date);
-}
-
-async function fetchJSON(path, signal) {
-  const response = await fetch(`${API}${path}`, { signal });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json();
-}
 
 const s = {
   layout: {
