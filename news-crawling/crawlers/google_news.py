@@ -9,6 +9,8 @@ from bs4 import BeautifulSoup
 
 from config import CRAWL_HEADERS, REQUEST_TIMEOUT
 
+from ._http import create_safe_client, safe_get
+
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://news.google.com/rss/search"
@@ -22,7 +24,7 @@ def fetch() -> list[dict[str, Any]]:
     articles: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
     try:
-        with httpx.Client(headers=CRAWL_HEADERS, follow_redirects=True) as client:
+        with create_safe_client() as client:
             for query, category in _QUERIES:
                 articles.extend(_fetch_query(client, query, category, seen_urls))
     except Exception as e:
@@ -43,8 +45,7 @@ def _fetch_query(
         "gl": "US",
         "ceid": "US:en",
     })
-    resp = client.get(f"{_BASE_URL}?{params}", timeout=REQUEST_TIMEOUT)
-    resp.raise_for_status()
+    resp = safe_get(client, f"{_BASE_URL}?{params}", timeout=REQUEST_TIMEOUT, expected_kind="xml")
 
     soup = BeautifulSoup(resp.text, "lxml-xml")
     articles = []
@@ -55,6 +56,8 @@ def _fetch_query(
             continue
 
         url = link.get_text(strip=True)
+        if not url.lower().startswith(("http://", "https://")):
+            continue
         if url in seen_urls:
             continue
         seen_urls.add(url)
@@ -83,8 +86,7 @@ def _fetch_query(
 
 def _fetch_article_content(client: httpx.Client, url: str, fallback: str) -> str:
     try:
-        resp = client.get(url, timeout=15)
-        resp.raise_for_status()
+        resp = safe_get(client, url, timeout=REQUEST_TIMEOUT, expected_kind="html")
         content = trafilatura.extract(
             resp.text,
             include_comments=False,

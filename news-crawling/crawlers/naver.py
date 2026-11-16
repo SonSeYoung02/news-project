@@ -1,11 +1,14 @@
 import logging
 from datetime import datetime
 from typing import Any
+from urllib.parse import urljoin
 
 import httpx
 from bs4 import BeautifulSoup
 
-from config import CRAWL_HEADERS, REQUEST_TIMEOUT
+from config import REQUEST_TIMEOUT
+
+from ._http import UnsafeURLError, create_safe_client, safe_get, validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +22,7 @@ _SECTION_URLS = [
 
 def _fetch_article_content(client: httpx.Client, url: str) -> str:
     try:
-        resp = client.get(url, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
+        resp = safe_get(client, url, timeout=REQUEST_TIMEOUT, expected_kind="html")
         soup = BeautifulSoup(resp.text, "lxml")
         article_body = (
             soup.select_one("#dic_area")
@@ -40,18 +42,23 @@ def fetch() -> list[dict[str, Any]]:
     seen_urls: set[str] = set()
 
     try:
-        with httpx.Client(headers=CRAWL_HEADERS, follow_redirects=True) as client:
+        with create_safe_client() as client:
             for section_url in _SECTION_URLS:
                 try:
-                    resp = client.get(section_url, timeout=REQUEST_TIMEOUT)
-                    resp.raise_for_status()
+                    resp = safe_get(client, section_url, timeout=REQUEST_TIMEOUT, expected_kind="html")
                     soup = BeautifulSoup(resp.text, "lxml")
 
                     links = soup.select("a[href*='article']")
                     for link in links[:5]:  # 섹션당 최대 5건
-                        href = link.get("href", "")
-                        if not href.startswith("http"):
-                            href = _BASE_URL + href
+                        raw_href = str(link.get("href", "") or "").strip()
+                        if not raw_href:
+                            continue
+                        href = urljoin(_BASE_URL, raw_href)
+                        try:
+                            validate_url(href)
+                        except UnsafeURLError as e:
+                            logger.warning("네이버 기사 URL 검증 차단 (%s): %s", href[:80], e)
+                            continue
                         if href in seen_urls or "article" not in href:
                             continue
                         seen_urls.add(href)

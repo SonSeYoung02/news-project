@@ -8,6 +8,8 @@ from bs4 import BeautifulSoup
 
 from config import CRAWL_HEADERS
 
+from ._http import create_safe_client, safe_get
+
 logger = logging.getLogger(__name__)
 
 _API_URL = (
@@ -56,12 +58,21 @@ def fetch() -> list[dict[str, Any]]:
 
 def _get_with_retry() -> httpx.Response:
     last_response = None
-    for attempt in range(3):
-        if attempt:
-            time.sleep(3)
-        last_response = httpx.get(_API_URL, headers=_HEADERS, timeout=_TIMEOUT)
-        if last_response.status_code != 429:
-            return last_response
+    with create_safe_client(headers=_HEADERS, timeout=_TIMEOUT) as client:
+        for attempt in range(3):
+            if attempt:
+                time.sleep(3)
+            last_response = safe_get(
+                client,
+                _API_URL,
+                timeout=_TIMEOUT,
+                expected_kind="xml",
+                raise_for_status=False,
+            )
+            if last_response.status_code != 429:
+                return last_response
+    if last_response is None:
+        raise RuntimeError("arXiv API 응답을 받지 못했습니다.")
     return last_response
 
 
