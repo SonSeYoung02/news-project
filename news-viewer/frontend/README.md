@@ -35,7 +35,7 @@ uvicorn main:app --reload
 
 밝은 중립 배경의 읽기 중심 뉴스 리더 UI입니다(#22).
 
-- **색상**: 강조색은 녹색 계열(`ACCENT` `#258347`, `ACCENT_DARK` `#1e6837`, `ACCENT_LIGHT` `#edf5ef`)이며 `App.jsx` 상단 상수에서 관리합니다. 본문·보조 텍스트는 WCAG AA(4.5:1) 이상의 대비를 유지합니다.
+- **색상**: 강조색은 녹색 계열(`ACCENT` `#258347`, `ACCENT_DARK` `#1e6837`, `ACCENT_LIGHT` `#edf5ef`)이며 `src/styles/theme.js`에서 관리합니다. 본문·보조 텍스트는 WCAG AA(4.5:1) 이상의 대비를 유지합니다.
 - **출처 배지**: 출처별 약어와 색상(`SOURCE_MARKS`)으로 목록과 상세 화면에서 출처를 구분합니다. 새 출처를 추가하면 `SOURCE_FILTERS`와 `SOURCE_MARKS`를 함께 갱신합니다.
 - **정보 위계**: 출처·카테고리·날짜 → 제목 → 요약 → 태그 순으로 배치하고, 카드 테두리·그림자 대신 구분선과 선택 강조로 목록을 구분합니다.
 - **사이드바**: 보기·카테고리·출처 항목에 기사 수 배지를 표시합니다.
@@ -90,13 +90,20 @@ frontend/
 ├── index.html          # HTML 진입점 (#app 마운트)
 ├── vite.config.js      # Vite + React 플러그인 설정
 ├── src/
-│   ├── main.jsx        # ReactDOM.createRoot 부트스트랩
-│   ├── App.jsx         # 전체 앱 (상태, 데이터 패칭, UI, 색상 상수)
-│   ├── ArticleBody.jsx # 기사 본문 Markdown 렌더링
-│   ├── articleState.js # 기사 목록·상세 요청 상태 리듀서
-│   └── index.css       # 전역 리셋, 스크롤바, 포커스 링 스타일
+│   ├── main.jsx            # ReactDOM.createRoot 부트스트랩
+│   ├── App.jsx             # 레이아웃 조립, 보기(브리핑/기사) 전환, 자동 선택
+│   ├── api/client.js       # API 기본 경로(/api), fetchJSON
+│   ├── features/
+│   │   ├── articles/       # 기사 피드: 목록·카드·상세·본문·페이지네이션, 상태 리듀서, useArticles
+│   │   └── briefing/       # 오늘의 AI 브리핑: 목록, useBriefing
+│   ├── layout/             # Sidebar, Topbar(+ 모바일 읽기 헤더)
+│   ├── components/         # 여러 기능이 공유하는 UI (SourceMark)
+│   ├── hooks/              # 범용 hook (useMediaQuery)
+│   ├── styles/             # theme.js(색상 토큰), shared.js(공용 인라인 스타일), index.css(전역 스타일)
+│   └── utils/              # formatDate
 ├── test/
-│   └── article-body.test.mjs  # 본문 렌더링 회귀 테스트 (npm test)
+│   ├── empty-state.test.mjs   # 기사 상태 리듀서 회귀 테스트 (node --test)
+│   └── article-body.test.mjs  # 본문 렌더링 회귀 테스트
 ├── review/issue-22/    # 현재 화면 스크린샷 (루트 README에서 사용)
 └── public/
     └── favicon.svg

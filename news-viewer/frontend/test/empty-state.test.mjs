@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { articleReducer, initialArticleState } from "./articleState.js";
+import { articleReducer, initialArticleState } from "../src/features/articles/articleState.js";
 
 test("Issue #34 Regression: START_FETCH synchronously sets loading=true and selected=null (prevents stale article in loading transition)", () => {
   // Simulate active desktop state with an article open
