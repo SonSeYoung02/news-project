@@ -48,7 +48,8 @@ news-crawling/
 ├── pipeline.log             # 실행 로그 파일
 ├── pytest.ini               # pytest 설정 (testpaths, pythonpath)
 ├── requirements.txt         # 파이썬 런타임 의존성
-└── requirements-dev.txt     # 파이썬 개발·테스트 의존성 (pytest)
+├── requirements-dev.txt     # 파이썬 개발·테스트 의존성 (pytest, ruff)
+└── ruff.toml                # Ruff 린터·포매터 설정
 ```
 
 ---
@@ -128,8 +129,11 @@ python main.py --schedule
 테스트는 `tests/conftest.py`의 임시 SQLite DB fixture와 모킹(`httpx.MockTransport`, `unittest.mock`)을 사용하여 실제 외부 네트워크·Gemini API 호출 없이 실행됩니다.
 
 ```bash
-# 테스트 의존성 설치
+# 개발/테스트 의존성 설치
 python -m pip install -r requirements-dev.txt
+
+# 린트 검사 (Ruff)
+python -m ruff check .
 
 # 크롤러 전체 테스트 실행
 python -m pytest -v

@@ -15,9 +15,9 @@ from collections.abc import Mapping
 from urllib.parse import urlsplit
 
 import httpcore
+import httpx
 from httpcore._backends.sync import SyncStream
 from httpcore._exceptions import ConnectError, ConnectTimeout, ReadTimeout, WriteTimeout, map_exceptions
-import httpx
 from httpx._config import DEFAULT_LIMITS, create_ssl_context
 
 from config import (

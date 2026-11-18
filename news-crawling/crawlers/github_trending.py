@@ -3,7 +3,6 @@ import re
 from datetime import datetime
 from typing import Any
 
-import httpx
 from bs4 import BeautifulSoup
 
 from config import REQUEST_TIMEOUT

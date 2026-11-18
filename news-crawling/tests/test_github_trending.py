@@ -3,7 +3,6 @@ from bs4 import BeautifulSoup
 import db
 from crawlers.github_trending import _parse_row, _parse_trending
 
-
 HTML_ROW_STARS_1 = """
 <article class="Box-row">
   <h2 class="h3 lh-condensed">
