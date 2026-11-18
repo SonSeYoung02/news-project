@@ -8,11 +8,11 @@ from app.article.router import get_article, get_articles
 from app.article.schemas import Article, ArticleListResponse
 from app.article.service import _reject_nul_byte
 from app.briefing.cache import (
-    _BriefingCacheEntry,
-    _BriefingInFlight,
     _briefing_cache,
     _briefing_cache_lock,
     _briefing_inflight,
+    _BriefingCacheEntry,
+    _BriefingInFlight,
     _clear_briefing_cache,
     _clone_briefing_response,
     _get_db_cache_key_and_fingerprint,
@@ -28,6 +28,7 @@ from app.briefing.service import (
     _utc_now,
 )
 from app.common.config import (
+    _KOREAN_SOURCES_SQL,
     BRIEFING_CACHE_MAX_ENTRIES,
     BRIEFING_CACHE_TTL_SECONDS,
     BRIEFING_COMPACT_THRESHOLD,
@@ -43,7 +44,6 @@ from app.common.config import (
     MAX_SEARCH_QUERY_LENGTH,
     SQLITE_MAX_INT64,
     SQLITE_MIN_INT64,
-    _KOREAN_SOURCES_SQL,
 )
 from app.common.database import (
     _article_select_fields,

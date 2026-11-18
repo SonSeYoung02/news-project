@@ -1,12 +1,12 @@
 """백엔드 의도 기반 테스트용 공용 pytest 픽스처 모듈."""
 
+import sqlite3
 from contextlib import closing
 from pathlib import Path
-import sqlite3
 from typing import Optional
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
 import main
 
