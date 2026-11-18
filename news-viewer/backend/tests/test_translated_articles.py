@@ -3,6 +3,7 @@ import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timezone
+from typing import Optional
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -10,6 +11,14 @@ from fastapi.testclient import TestClient
 import main
 
 FIXED_NOW = datetime(2026, 11, 12, 12, 0, 0, tzinfo=timezone.utc)
+
+
+def _restore_db_path(prev_db_path: Optional[str]) -> None:
+    """테스트 시작 전 DB_PATH 환경 변수 상태를 복원한다."""
+    if prev_db_path is None:
+        os.environ.pop("DB_PATH", None)
+    else:
+        os.environ["DB_PATH"] = prev_db_path
 
 
 def init_test_db(db_path: str):
@@ -95,6 +104,7 @@ def init_test_db(db_path: str):
 
 class TestTranslatedArticlesAPI(unittest.TestCase):
     def setUp(self):
+        self._prev_db_path = os.environ.get("DB_PATH")
         self.temp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.temp_db_path = self.temp_db.name
         self.temp_db.close()
@@ -103,6 +113,7 @@ class TestTranslatedArticlesAPI(unittest.TestCase):
         self.client = TestClient(main.app)
 
     def tearDown(self):
+        _restore_db_path(self._prev_db_path)
         try:
             if os.path.exists(self.temp_db_path):
                 os.remove(self.temp_db_path)
@@ -270,6 +281,7 @@ class TestKoreanSourceRegressionWithTranslationsTable(unittest.TestCase):
     """번역 테이블(article_translations)이 존재하는 DB 환경에서의 회귀 테스트"""
 
     def setUp(self):
+        self._prev_db_path = os.environ.get("DB_PATH")
         self.temp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.temp_db_path = self.temp_db.name
         self.temp_db.close()
@@ -278,6 +290,7 @@ class TestKoreanSourceRegressionWithTranslationsTable(unittest.TestCase):
         self.client = TestClient(main.app)
 
     def tearDown(self):
+        _restore_db_path(self._prev_db_path)
         try:
             if os.path.exists(self.temp_db_path):
                 os.remove(self.temp_db_path)
@@ -360,6 +373,7 @@ class TestKoreanSourceRegressionWithoutTranslationsTable(unittest.TestCase):
     """번역 테이블(article_translations)이 없는 DB 환경에서의 회귀 테스트"""
 
     def setUp(self):
+        self._prev_db_path = os.environ.get("DB_PATH")
         self.temp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.temp_db_path = self.temp_db.name
         self.temp_db.close()
@@ -368,6 +382,7 @@ class TestKoreanSourceRegressionWithoutTranslationsTable(unittest.TestCase):
         self.client = TestClient(main.app)
 
     def tearDown(self):
+        _restore_db_path(self._prev_db_path)
         try:
             if os.path.exists(self.temp_db_path):
                 os.remove(self.temp_db_path)
