@@ -4,6 +4,7 @@ import { sharedStyles } from "../../../shared/styles/shared.ts";
 import type { StyleMap } from "../../../shared/styles/shared.ts";
 import { formatDate } from "../../../shared/utils/formatDate.ts";
 import type { Article } from "../model/article.ts";
+import { formatArticlePreview } from "../model/articlePreview.ts";
 
 const s = {
   card: (selected) => ({
@@ -73,10 +74,11 @@ interface ArticleCardProps {
 }
 
 export default function ArticleCard({ article: a, selected, onSelect }: ArticleCardProps) {
-  const previewText = a.summary || a.content;
+  const previewText = formatArticlePreview(a.summary, a.content);
   return (
     <button
       type="button"
+      data-article-id={a.id}
       aria-pressed={selected}
       onClick={() => onSelect(a)}
       style={s.card(selected)}
@@ -95,9 +97,7 @@ export default function ArticleCard({ article: a, selected, onSelect }: ArticleC
       </div>
       <div style={s.cardTitle}>{a.title}</div>
       {previewText && (
-        <div style={s.cardSummary}>
-          {previewText.slice(0, 95)}{previewText.length > 95 ? "…" : ""}
-        </div>
+        <div style={s.cardSummary}>{previewText}</div>
       )}
       {(a.tags || []).length > 0 && (
         <div style={s.tagRow}>

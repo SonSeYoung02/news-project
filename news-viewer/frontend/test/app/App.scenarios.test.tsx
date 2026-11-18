@@ -1,8 +1,17 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import App from "../../src/app/App.tsx";
 import { SOURCE_FILTERS } from "../../src/domains/article/index.ts";
+
+function renderApp() {
+  return render(
+    <MemoryRouter>
+      <App />
+    </MemoryRouter>,
+  );
+}
 import {
   DEFAULT_SOURCES,
   createDeferred,
@@ -43,7 +52,7 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
     const mock = setupMockFetch({ briefing });
     const user = userEvent.setup();
 
-    const { container } = render(<App />);
+    const { container } = renderApp();
     const sidebar = container.querySelector("aside") as HTMLElement;
 
     expect(within(sidebar).getByRole("button", { name: "오늘의 AI 브리핑" })).toHaveAttribute(
@@ -101,7 +110,7 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
     });
     const user = userEvent.setup();
 
-    const { container } = render(<App />);
+    const { container } = renderApp();
     const sidebar = container.querySelector("aside") as HTMLElement;
     const detailPanel = screen.getByLabelText("기사 상세");
 
@@ -145,7 +154,7 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
     const deferredBriefing = createDeferred<ReturnType<typeof createMockBriefing>>();
     setupMockFetch({ briefing: deferredBriefing.promise });
 
-    render(<App />);
+    renderApp();
     const listPanel = screen.getByLabelText("오늘의 AI 브리핑 목록");
     const detailPanel = screen.getByLabelText("기사 상세");
     const refreshButton = screen.getByRole("button", { name: "새로고침" });
@@ -167,7 +176,7 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
     const mock = setupMockFetch({ briefing: { status: 500 } });
     const user = userEvent.setup();
 
-    render(<App />);
+    renderApp();
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent("브리핑을 불러오지 못했습니다.");
@@ -200,7 +209,7 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
     });
     const user = userEvent.setup();
 
-    const { container } = render(<App />);
+    const { container } = renderApp();
     const sidebar = container.querySelector("aside") as HTMLElement;
 
     await waitFor(() => {
@@ -256,7 +265,7 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
       totalAll: 30,
     });
 
-    const { container } = render(<App />);
+    const { container } = renderApp();
     const sidebar = container.querySelector("aside") as HTMLElement;
 
     await waitFor(() => {
@@ -270,7 +279,7 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
   it("사이드바 메타데이터 조회에 실패하면 필터 오류 알림을 표시한다", async () => {
     setupMockFetch({ sources: { status: 500 } });
 
-    render(<App />);
+    renderApp();
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(
@@ -288,7 +297,7 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
     });
     const user = userEvent.setup();
 
-    const { container } = render(<App />);
+    const { container } = renderApp();
     const sidebar = container.querySelector("aside") as HTMLElement;
     const listPanel = screen.getByLabelText("오늘의 AI 브리핑 목록");
 
@@ -353,7 +362,7 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
     });
     const user = userEvent.setup();
 
-    const { container } = render(<App />);
+    const { container } = renderApp();
     const sidebar = container.querySelector("aside") as HTMLElement;
 
     await user.click(within(sidebar).getByRole("button", { name: "전체 기사" }));
@@ -376,7 +385,7 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
     });
     const user = userEvent.setup();
 
-    render(<App />);
+    renderApp();
     await waitFor(() => {
       expect(within(screen.getByLabelText("기사 상세")).getByRole("heading", { name: "오늘의 브리핑 AI 기사 1" })).toBeInTheDocument();
     });
@@ -433,7 +442,7 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
     const mock = setupMockFetch({ articles: manyArticles });
     const user = userEvent.setup();
 
-    const { container } = render(<App />);
+    const { container } = renderApp();
     const sidebar = container.querySelector("aside") as HTMLElement;
 
     // 전체 기사 보기로 이동: 45건 -> 3페이지
@@ -522,7 +531,7 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
     });
     const user = userEvent.setup();
 
-    const { container } = render(<App />);
+    const { container } = renderApp();
     const sidebar = container.querySelector("aside") as HTMLElement;
     const detailPanel = screen.getByLabelText("기사 상세");
 
@@ -578,7 +587,7 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
     });
     const user = userEvent.setup();
 
-    const { container, unmount } = render(<App />);
+    const { container, unmount } = renderApp();
     const sidebar = container.querySelector("aside") as HTMLElement;
 
     await waitFor(() => {
@@ -648,7 +657,7 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
     });
     const user = userEvent.setup();
 
-    render(<App />);
+    renderApp();
 
     const listPanel = screen.getByLabelText("오늘의 AI 브리핑 목록");
     const detailPanel = screen.getByLabelText("기사 상세");
@@ -720,7 +729,7 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
     });
     const user = userEvent.setup();
 
-    const { container } = render(<App />);
+    const { container } = renderApp();
     const sidebar = container.querySelector("aside") as HTMLElement;
     const filtersRegion = container.querySelector("#news-filters") as HTMLElement;
 

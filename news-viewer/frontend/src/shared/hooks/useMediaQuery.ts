@@ -3,9 +3,14 @@ import { useEffect, useState } from "react";
 // 미디어 쿼리 일치 여부를 반환한다. query와 onChange는 마운트 시점 값만 사용하므로
 // onChange에는 setState처럼 렌더 간 동일한 함수만 사용한다.
 export default function useMediaQuery(query: string, onChange?: (event: MediaQueryListEvent) => void): boolean {
-  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+  const [matches, setMatches] = useState(() =>
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia(query).matches
+      : false,
+  );
 
   useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
     const media = window.matchMedia(query);
     const handleChange = (event: MediaQueryListEvent) => {
       setMatches(event.matches);

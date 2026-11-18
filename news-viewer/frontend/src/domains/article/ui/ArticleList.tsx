@@ -140,27 +140,55 @@ export default function ArticleList({
   totalPages,
   onPageChange,
 }: ArticleListProps) {
+  const activeChips = [
+    ...(selectedSource
+      ? [
+          {
+            key: "source",
+            label: `출처: ${selectedSource}`,
+            ariaLabel: `출처: ${selectedSource} 필터 해제`,
+            onRemove: onRemoveSource,
+          },
+        ]
+      : []),
+    ...(search
+      ? [
+          {
+            key: "search",
+            label: `검색: ${search}`,
+            ariaLabel: `검색: ${search} 필터 해제`,
+            onRemove: onResetSearch,
+          },
+        ]
+      : []),
+  ];
+
   return (
     <>
-      {selectedSource && (
+      {activeChips.length > 0 && (
         <div style={s.activeFilterBar} aria-label="활성 필터">
           <span style={s.activeFilterLabel}>적용된 필터:</span>
-          <button
-            type="button"
-            style={s.activeFilterChip}
-            onClick={onRemoveSource}
-            aria-label={`출처: ${selectedSource} 필터 해제`}
-          >
-            <span>출처: {selectedSource}</span>
-            <span style={s.activeFilterRemove} aria-hidden="true">✕</span>
-          </button>
-          <button
-            type="button"
-            style={s.filterResetBtn}
-            onClick={onResetFilters}
-          >
-            필터 초기화
-          </button>
+          {activeChips.map((chip) => (
+            <button
+              key={chip.key}
+              type="button"
+              style={s.activeFilterChip}
+              onClick={chip.onRemove}
+              aria-label={chip.ariaLabel}
+            >
+              <span>{chip.label}</span>
+              <span style={s.activeFilterRemove} aria-hidden="true">✕</span>
+            </button>
+          ))}
+          {selectedSource && (
+            <button
+              type="button"
+              style={s.filterResetBtn}
+              onClick={onResetFilters}
+            >
+              필터 초기화
+            </button>
+          )}
         </div>
       )}
 

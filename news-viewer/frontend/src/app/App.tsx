@@ -1,7 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { ArticleDetail, ArticleList, useArticleState, useArticles } from "../domains/article/index.ts";
-import type { View } from "../domains/article/index.ts";
+import { Navigate, Route, Routes } from "react-router";
+import {
+  ArticleDetail,
+  ArticleList,
+  getDetailEmptyMessage,
+  getDocumentTitle,
+  pickAutoSelectedArticleId,
+  shouldAutoSelectFirstArticle,
+  useArticleDetail,
+  useArticleRoute,
+  useArticleState,
+  useArticles,
+} from "../domains/article/index.ts";
+import type { Article, View } from "../domains/article/index.ts";
 import { BriefingList, useBriefing } from "../domains/briefing/index.ts";
 import useMediaQuery from "../shared/hooks/useMediaQuery.ts";
 import { sharedStyles } from "../shared/styles/shared.ts";
@@ -47,101 +59,224 @@ const s = {
   error: sharedStyles.error,
 } satisfies StyleMap;
 
-export default function App() {
-  const [view, setView] = useState<View>("briefing");
+function NewsViewerShell() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const isCompact = useMediaQuery(COMPACT_QUERY, () => setFiltersOpen(false));
 
-  // hook 호출 순서가 곧 effect 실행 순서다: 기사 상태 → 브리핑 → 기사 피드 → 자동 선택.
-  const articleState = useArticleState({ view, isCompact });
+  const {
+    route,
+    isDefined,
+    listUrl,
+    preferredArticleId,
+    goToView,
+    toggleSource,
+    resetFilters,
+    submitSearch,
+    resetSearch,
+    changePage,
+    selectArticle,
+    replaceAutoSelectedArticle,
+    clearBriefingSelectionOnRefresh,
+    goBackToList,
+  } = useArticleRoute();
+
+  const { view, articleId, source: selectedSource, search, page } = route;
+
+  // hook 호출 순서가 곧 effect 실행 순서다: 기사 상태 → 브리핑 → 기사 피드 → 단건 조회 → 자동 선택.
+  const articleState = useArticleState({
+    view,
+    isCompact,
+    articleId,
+    listKey: listUrl,
+  });
+
   const {
     articles,
-    loading,
     error,
-    selected,
-    setSelected,
-    isCompactRef,
     listRef,
-    handleSelectArticle,
-    handleBackToList,
+    saveScrollBeforeSelect,
   } = articleState;
 
-  const { briefing, briefingLoading, briefingError, retryBriefing } = useBriefing({ view, setSelected, isCompactRef });
+  const {
+    briefing,
+    briefingLoading,
+    briefingError,
+    isBriefingReady,
+    retryBriefing,
+  } = useBriefing({ view });
 
   const {
-    page,
-    selectedSource,
     query,
     setQuery,
-    search,
     metadataError,
     totalPages,
     sourceItems,
-    toggleSource,
-    resetFilters,
-    resetSearch,
-    submitSearch,
-    changePage,
-  } = useArticles(articleState);
+    isArticlesLoading,
+    isArticlesReady,
+  } = useArticles({
+    articleState,
+    view,
+    page,
+    selectedSource,
+    search,
+    listKey: listUrl,
+  });
+
+  const briefingArticles = briefing?.articles || [];
+  const activeListArticles = view === "briefing" ? briefingArticles : articles;
+  const activeListReady = view === "briefing" ? isBriefingReady : isArticlesReady;
+  const activeListLoading = view === "briefing" ? briefingLoading : isArticlesLoading;
+  const activeListError = view === "briefing" ? briefingError : error;
+
+  const { selected, detailLoading, detailError, detailErrorKind, retryDetail } = useArticleDetail({
+    articleId,
+    listArticles: activeListArticles,
+    listReady: activeListReady,
+  });
 
   useEffect(() => {
-    if (view === "briefing" && !isCompact && !briefingLoading && !selected && briefing && (briefing.articles || []).length > 0) {
-      setSelected(briefing.articles[0]);
+    if (!isDefined) return;
+    if (
+      shouldAutoSelectFirstArticle({
+        articleId,
+        isCompact,
+        listReady: activeListReady,
+        listError: activeListError,
+        articleCount: activeListArticles.length,
+      })
+    ) {
+      const targetId = pickAutoSelectedArticleId(
+        activeListArticles.map((article) => article.id),
+        preferredArticleId,
+      );
+      if (targetId !== null) {
+        replaceAutoSelectedArticle(targetId);
+      }
     }
-  }, [view, isCompact, briefingLoading, selected, briefing]);
+  }, [
+    isDefined,
+    articleId,
+    isCompact,
+    activeListReady,
+    activeListError,
+    activeListArticles,
+    preferredArticleId,
+    replaceAutoSelectedArticle,
+  ]);
 
   useEffect(() => {
-    if (view === "articles" && !isCompact && !loading && !selected && articles.length > 0) {
-      setSelected(articles[0]);
+    if (!isDefined) return;
+    document.title = getDocumentTitle({
+      route,
+      articleTitle: selected?.title ?? null,
+      detailErrorKind,
+    });
+  }, [isDefined, route, selected?.title, detailErrorKind]);
+
+  const detailHeadingRef = useRef<HTMLHeadingElement>(null);
+  const prevRouteContextRef = useRef<{ articleId: number | null; listUrl: string }>({
+    articleId: null,
+    listUrl,
+  });
+  const lastFocusedDetailIdRef = useRef<number | null>(null);
+  const pendingReturnFocusIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isDefined) return;
+
+    const prev = prevRouteContextRef.current;
+    prevRouteContextRef.current = { articleId, listUrl };
+
+    if (!isCompact) {
+      lastFocusedDetailIdRef.current = articleId;
+      pendingReturnFocusIdRef.current = null;
+      return;
     }
-  }, [view, isCompact, loading, selected, articles]);
+
+    if (articleId !== null) {
+      pendingReturnFocusIdRef.current = null;
+      if (
+        selected !== null &&
+        selected.id === articleId &&
+        lastFocusedDetailIdRef.current !== articleId &&
+        detailHeadingRef.current
+      ) {
+        detailHeadingRef.current.focus({ preventScroll: true });
+        lastFocusedDetailIdRef.current = articleId;
+      }
+      return;
+    }
+
+    lastFocusedDetailIdRef.current = null;
+
+    if (prev.listUrl !== listUrl) {
+      pendingReturnFocusIdRef.current = null;
+    } else if (prev.articleId !== null) {
+      pendingReturnFocusIdRef.current = prev.articleId;
+    }
+
+    if (pendingReturnFocusIdRef.current !== null && activeListReady && !activeListLoading) {
+      const targetId = pendingReturnFocusIdRef.current;
+      pendingReturnFocusIdRef.current = null;
+      const card = listRef.current?.querySelector<HTMLElement>(`[data-article-id="${targetId}"]`);
+      card?.focus({ preventScroll: true });
+    }
+  }, [
+    isDefined,
+    isCompact,
+    articleId,
+    listUrl,
+    selected,
+    activeListReady,
+    activeListLoading,
+    listRef,
+  ]);
+
+  if (!isDefined) {
+    return <Navigate to="/briefing" replace />;
+  }
 
   const handleSourceClick = (src: string) => {
-    setView("articles");
     setFiltersOpen(false);
     toggleSource(src);
   };
 
-  const handleResetFilters = () => {
-    setView("articles");
-    resetFilters();
-  };
-
-  const handleResetSearch = () => {
-    setView("articles");
-    resetSearch();
-  };
-
   const handleSearchSubmit = (e?: FormEvent<HTMLFormElement>) => {
     e?.preventDefault();
-    setView("articles");
-    submitSearch();
+    submitSearch(query);
   };
 
   const handleViewChange = (id: View) => {
-    if (view !== id) {
-      setView(id);
-      setSelected(null);
-    }
     setFiltersOpen(false);
+    goToView(id);
   };
 
-  const detailEmptyMessage =
-    view === "briefing"
-      ? (briefingLoading
-          ? "브리핑을 불러오는 중..."
-          : briefingError
-          ? "브리핑을 불러오지 못했습니다"
-          : (briefing?.articles || []).length === 0
-          ? "최근 24시간에 수집된 AI 기사가 없습니다"
-          : "기사를 선택하세요")
-      : (loading
-          ? "기사를 불러오는 중..."
-          : error
-          ? "기사를 불러오지 못했습니다"
-          : articles.length === 0
-          ? (search ? "검색 결과가 없습니다" : "표시할 기사가 없습니다")
-          : "기사를 선택하세요");
+  const handleSelectArticle = (article: Article) => {
+    saveScrollBeforeSelect();
+    selectArticle(article.id);
+  };
+
+  const handleRetryBriefing = () => {
+    clearBriefingSelectionOnRefresh();
+    retryBriefing();
+  };
+
+  const handleResetSearch = () => {
+    setFiltersOpen(false);
+    resetSearch();
+  };
+
+  const isDetailRoute = articleId !== null;
+  const detailEmptyMessage = getDetailEmptyMessage({
+    view,
+    articleId,
+    listLoading: activeListLoading,
+    listError: activeListError,
+    detailLoading,
+    detailError,
+    itemCount: activeListArticles.length,
+    search,
+  });
 
   return (
     <div style={{ ...s.layout, ...(isCompact ? s.compactLayout : {}) }}>
@@ -157,7 +292,7 @@ export default function App() {
       />
 
       <main style={s.main}>
-        {isCompact && selected && <ReadingHeader selected={selected} onBack={handleBackToList} />}
+        {isCompact && isDetailRoute && <ReadingHeader selected={selected} onBack={goBackToList} />}
 
         <Topbar
           isCompact={isCompact}
@@ -167,6 +302,7 @@ export default function App() {
           query={query}
           onQueryChange={setQuery}
           onSearchSubmit={handleSearchSubmit}
+          hideOnCompact={isDetailRoute}
         />
 
         {((view === "articles" && error) || metadataError) && (
@@ -183,7 +319,7 @@ export default function App() {
             style={{
               ...s.listPanel,
               ...(isCompact ? s.compactList : {}),
-              ...(isCompact && selected ? { display: "none" } : {}),
+              ...(isCompact && isDetailRoute ? { display: "none" } : {}),
             }}
           >
             {view === "briefing" && (
@@ -191,22 +327,22 @@ export default function App() {
                 briefing={briefing}
                 briefingLoading={briefingLoading}
                 briefingError={briefingError}
-                onRetry={retryBriefing}
-                selectedId={selected?.id}
+                onRetry={handleRetryBriefing}
+                selectedId={selected?.id ?? articleId ?? undefined}
                 onSelectArticle={handleSelectArticle}
               />
             )}
             {view === "articles" && (
               <ArticleList
                 articles={articles}
-                loading={loading}
+                loading={isArticlesLoading}
                 error={error}
                 search={search}
                 selectedSource={selectedSource}
-                selectedId={selected?.id}
+                selectedId={selected?.id ?? articleId ?? undefined}
                 onSelectArticle={handleSelectArticle}
                 onRemoveSource={() => handleSourceClick("")}
-                onResetFilters={handleResetFilters}
+                onResetFilters={resetFilters}
                 onResetSearch={handleResetSearch}
                 page={page}
                 totalPages={totalPages}
@@ -215,9 +351,35 @@ export default function App() {
             )}
           </div>
 
-          <ArticleDetail selected={selected} isCompact={isCompact} emptyMessage={detailEmptyMessage} />
+          <ArticleDetail
+            selected={selected}
+            isCompact={isCompact}
+            emptyMessage={detailEmptyMessage}
+            forceShowOnCompact={isDetailRoute}
+            errorKind={detailErrorKind}
+            onBackToList={goBackToList}
+            onRetry={retryDetail}
+            headingRef={detailHeadingRef}
+          />
         </div>
       </main>
     </div>
   );
 }
+
+export function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/" element={<Navigate to="/briefing" replace />} />
+      <Route element={<NewsViewerShell />}>
+        <Route path="/briefing" element={null} />
+        <Route path="/briefing/:id" element={null} />
+        <Route path="/articles" element={null} />
+        <Route path="/articles/:id" element={null} />
+      </Route>
+      <Route path="*" element={<Navigate to="/briefing" replace />} />
+    </Routes>
+  );
+}
+
+export default AppRoutes;

@@ -47,6 +47,11 @@ export async function fetchArticleList(
   };
 }
 
+export async function fetchArticleById(articleId: number, signal?: AbortSignal): Promise<Article> {
+  const dto = await fetchJSON<ArticleDto>(`/articles/${articleId}`, signal);
+  return toArticle(dto);
+}
+
 export async function fetchSourceCounts(signal?: AbortSignal): Promise<SourceCount[]> {
   const dtos = await fetchJSON<SourceCountDto[]>("/sources", signal);
   return Array.isArray(dtos)
