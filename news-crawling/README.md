@@ -10,6 +10,7 @@
 - [새벽 수집 및 번역 파이프라인 동작 로직](#새벽-수집-및-번역-파이프라인-동작-로직)
 - [설정 및 무료 티어 가이드](#설정-및-무료-티어-가이드)
 - [사용법](#사용법)
+- [테스트 및 검증](#테스트-및-검증)
 - [데이터베이스 명세](#데이터베이스-명세)
 
 ---
@@ -40,9 +41,14 @@ news-crawling/
 │   ├── batcher.py           # 번역 대기열을 글자 수·건수 기준 묶음으로 분할
 │   ├── batch_translator.py  # 묶음 단위 Gemini 요청·응답 검증·한도 오류 처리
 │   └── rate_limiter.py      # RPM/일일 쿼터 통제 및 05:55 마감 제어
+├── tests/                   # pytest 테스트 스위트
+│   ├── conftest.py          # 임시 DB·공유 락·Gemini 모킹 공용 fixture
+│   └── test_*.py            # 크롤러·보안·번역 파이프라인 테스트
 ├── news.db                  # SQLite DB 파일
 ├── pipeline.log             # 실행 로그 파일
-└── requirements.txt         # 파이썬 의존성
+├── pytest.ini               # pytest 설정 (testpaths, pythonpath)
+├── requirements.txt         # 파이썬 런타임 의존성
+└── requirements-dev.txt     # 파이썬 개발·테스트 의존성 (pytest)
 ```
 
 ---
@@ -113,6 +119,23 @@ python main.py --run
 
 # 새벽 01:00 KST 자동 스케줄러 실행
 python main.py --schedule
+```
+
+---
+
+## 테스트 및 검증
+
+테스트는 `tests/conftest.py`의 임시 SQLite DB fixture와 모킹(`httpx.MockTransport`, `unittest.mock`)을 사용하여 실제 외부 네트워크·Gemini API 호출 없이 실행됩니다.
+
+```bash
+# 테스트 의존성 설치
+python -m pip install -r requirements-dev.txt
+
+# 크롤러 전체 테스트 실행
+python -m pytest -v
+
+# 개별 테스트 파일 실행
+python -m pytest tests/test_pipeline_integration.py -v
 ```
 
 ---
