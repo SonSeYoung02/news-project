@@ -678,11 +678,13 @@ def _read_bounded_body(
     return b"".join(chunks)
 
 
-def safe_get(
+def _safe_request(
+    method: str,
     client: httpx.Client,
     url: str | httpx.URL,
     *,
     params: typing.Any = None,
+    data: typing.Any = None,
     headers: Mapping[str, str] | None = None,
     timeout: float = REQUEST_TIMEOUT,
     max_bytes: int = CRAWL_MAX_RESPONSE_BYTES,
@@ -692,12 +694,15 @@ def safe_get(
     allowed_ports: frozenset[int] = CRAWL_ALLOWED_PORTS,
     raise_for_status: bool = True,
 ) -> httpx.Response:
-    """URL·리다이렉트·MIME·압축해제 바이트 상한·시간 예산을 강제하여 GET 요청을 수행한다."""
+    """URL·리다이렉트·MIME·압축해제 바이트 상한·시간 예산을 강제하여 HTTP 요청을 수행한다."""
     total_budget = float(timeout)
     deadline = time.monotonic() + total_budget
     effective_max_raw = max_raw_bytes if max_raw_bytes is not None else min(CRAWL_MAX_RAW_BYTES, max_bytes + 1024)
     target = httpx.URL(url, params=params) if params is not None else url
     current_url = validate_url(target, allowed_ports=allowed_ports)
+    current_method = method.upper()
+    current_data = data
+    current_headers = dict(headers) if headers else None
     history: list[httpx.Response] = []
 
     with _request_deadline_scope(deadline):
@@ -714,19 +719,31 @@ def safe_get(
                 pool=remaining,
             )
 
-            with client.stream(
-                "GET",
-                str(current_url),
-                headers=dict(headers) if headers else None,
-                timeout=hop_timeout,
-                follow_redirects=False,
-            ) as resp:
+            stream_kwargs: dict[str, typing.Any] = {
+                "headers": current_headers,
+                "timeout": hop_timeout,
+                "follow_redirects": False,
+            }
+            if current_data is not None:
+                stream_kwargs["data"] = current_data
+
+            with client.stream(current_method, str(current_url), **stream_kwargs) as resp:
                 if resp.has_redirect_location:
                     if hop >= max_redirects:
                         raise UnsafeURLError(f"리다이렉트 허용 횟수({max_redirects})를 초과했습니다.")
                     if resp.next_request is None:
                         raise UnsafeURLError("리다이렉트 대상 URL을 확인할 수 없습니다.")
                     next_url = validate_url(resp.next_request.url, allowed_ports=allowed_ports)
+                    next_method = resp.next_request.method.upper()
+                    if next_method != current_method:
+                        current_method = next_method
+                        current_data = None
+                        if current_headers:
+                            current_headers = {
+                                k: v
+                                for k, v in current_headers.items()
+                                if k.lower() not in ("content-type", "content-length")
+                            }
                     history.append(resp)
                     current_url = next_url
                     continue
@@ -748,3 +765,67 @@ def safe_get(
                 return resp
 
     raise UnsafeURLError(f"리다이렉트 허용 횟수({max_redirects})를 초과했습니다.")
+
+
+def safe_get(
+    client: httpx.Client,
+    url: str | httpx.URL,
+    *,
+    params: typing.Any = None,
+    headers: Mapping[str, str] | None = None,
+    timeout: float = REQUEST_TIMEOUT,
+    max_bytes: int = CRAWL_MAX_RESPONSE_BYTES,
+    max_raw_bytes: int | None = None,
+    max_redirects: int = CRAWL_MAX_REDIRECTS,
+    expected_kind: str = "any",
+    allowed_ports: frozenset[int] = CRAWL_ALLOWED_PORTS,
+    raise_for_status: bool = True,
+) -> httpx.Response:
+    """URL·리다이렉트·MIME·압축해제 바이트 상한·시간 예산을 강제하여 GET 요청을 수행한다."""
+    return _safe_request(
+        "GET",
+        client,
+        url,
+        params=params,
+        headers=headers,
+        timeout=timeout,
+        max_bytes=max_bytes,
+        max_raw_bytes=max_raw_bytes,
+        max_redirects=max_redirects,
+        expected_kind=expected_kind,
+        allowed_ports=allowed_ports,
+        raise_for_status=raise_for_status,
+    )
+
+
+def safe_post(
+    client: httpx.Client,
+    url: str | httpx.URL,
+    *,
+    params: typing.Any = None,
+    data: typing.Any = None,
+    headers: Mapping[str, str] | None = None,
+    timeout: float = REQUEST_TIMEOUT,
+    max_bytes: int = CRAWL_MAX_RESPONSE_BYTES,
+    max_raw_bytes: int | None = None,
+    max_redirects: int = CRAWL_MAX_REDIRECTS,
+    expected_kind: str = "any",
+    allowed_ports: frozenset[int] = CRAWL_ALLOWED_PORTS,
+    raise_for_status: bool = True,
+) -> httpx.Response:
+    """URL·리다이렉트·MIME·압축해제 바이트 상한·시간 예산을 강제하여 POST 요청을 수행한다."""
+    return _safe_request(
+        "POST",
+        client,
+        url,
+        params=params,
+        data=data,
+        headers=headers,
+        timeout=timeout,
+        max_bytes=max_bytes,
+        max_raw_bytes=max_raw_bytes,
+        max_redirects=max_redirects,
+        expected_kind=expected_kind,
+        allowed_ports=allowed_ports,
+        raise_for_status=raise_for_status,
+    )
