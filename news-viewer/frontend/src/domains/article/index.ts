@@ -1,4 +1,5 @@
 export type { Article, ArticleListResult, SourceCount, SourceItem } from "./model/article.ts";
+export { stripMarkdown, formatArticlePreview } from "./model/articlePreview.ts";
 export type {
   View,
   SelectedUpdater,
