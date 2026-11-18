@@ -51,6 +51,7 @@ function isButtonDisabled(html, label) {
 describe("출처 목록 및 viewer-ui 컴포넌트 렌더링 의도", () => {
   let vite;
   let SOURCE_FILTERS;
+  let buildSourceItems;
   let ArticleList;
   let Pagination;
   let BriefingList;
@@ -68,7 +69,7 @@ describe("출처 목록 및 viewer-ui 컴포넌트 렌더링 의도", () => {
       optimizeDeps: { noDiscovery: true },
     });
     try {
-      ({ SOURCE_FILTERS } = await vite.ssrLoadModule("/src/domains/article/model/sourceFilters.ts"));
+      ({ SOURCE_FILTERS, buildSourceItems } = await vite.ssrLoadModule("/src/domains/article/model/sourceFilters.ts"));
       ({ default: ArticleList } = await vite.ssrLoadModule("/src/domains/article/ui/ArticleList.tsx"));
       ({ default: Pagination } = await vite.ssrLoadModule("/src/domains/article/ui/Pagination.tsx"));
       ({ default: BriefingList } = await vite.ssrLoadModule("/src/domains/briefing/ui/BriefingList.tsx"));
@@ -90,17 +91,41 @@ describe("출처 목록 및 viewer-ui 컴포넌트 렌더링 의도", () => {
     }
   });
 
-  test("고정 출처 목록(SOURCE_FILTERS)은 명세에 정의된 8개 출처와 순서를 따른다", () => {
+  test("고정 출처 목록(SOURCE_FILTERS)은 명세에 정의된 7개 출처와 순서를 따른다", () => {
     assert.deepEqual(SOURCE_FILTERS, [
       "네이버뉴스",
       "Google News",
       "GeekNews",
-      "Reddit AI",
       "GitHub Trending",
       "Hugging Face",
       "arXiv",
       "dev.to",
     ]);
+  });
+
+  test("사이드바에 Reddit AI가 표시되지 않는다", () => {
+    const sourceItems = buildSourceItems(
+      [
+        { source: "Reddit AI", count: 2 },
+        { source: "GeekNews", count: 4 },
+      ],
+      6,
+    );
+    const html = renderToStaticMarkup(
+      React.createElement(Sidebar, {
+        isCompact: false,
+        filtersOpen: false,
+        onToggleFilters: () => {},
+        view: "briefing",
+        onViewChange: () => {},
+        sourceItems,
+        selectedSource: "",
+        onSourceClick: () => {},
+      }),
+    );
+
+    assert.ok(html.includes("GeekNews"));
+    assert.equal(html.includes("Reddit AI"), false);
   });
 
   test("ArticleList는 검색 결과가 없을 때 검색어 안내 문구와 검색어 초기화 버튼을 표시한다", () => {

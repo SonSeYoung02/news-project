@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import App from "../../src/app/App.tsx";
 import { SOURCE_FILTERS } from "../../src/domains/article/index.ts";
 import {
+  DEFAULT_SOURCES,
   createDeferred,
   createMockArticle,
   createMockBriefing,
@@ -184,7 +185,7 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("사이드바에 전체와 8개 고정 출처를 순서대로 표시하고 필터나 검색을 바꿔도 전체 개수는 고정한다", async () => {
+  it("사이드바에 전체와 7개 고정 출처를 순서대로 표시하고 필터나 검색을 바꿔도 전체 개수는 고정한다", async () => {
     const mock = setupMockFetch({
       sources: [
         { source: "네이버뉴스", count: 12 },
@@ -220,7 +221,6 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
       네이버뉴스: "12",
       "Google News": "0",
       GeekNews: "8",
-      "Reddit AI": "0",
       "GitHub Trending": "0",
       "Hugging Face": "0",
       arXiv: "5",
@@ -247,6 +247,24 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
       expect(screen.getByText("‘존재하지않는검색어’에 대한 검색 결과가 없습니다")).toBeInTheDocument();
     });
     expect(within(sidebar).getByRole("button", { name: /^전체\s*100$/ })).toBeInTheDocument();
+  });
+
+  it("사이드바에 Reddit AI가 표시되지 않는다", async () => {
+    expect(DEFAULT_SOURCES.some((item) => item.source === "Reddit AI")).toBe(true);
+    setupMockFetch({
+      sources: DEFAULT_SOURCES,
+      totalAll: 30,
+    });
+
+    const { container } = render(<App />);
+    const sidebar = container.querySelector("aside") as HTMLElement;
+
+    await waitFor(() => {
+      expect(within(sidebar).getByRole("button", { name: /^GeekNews\s*4$/ })).toBeInTheDocument();
+    });
+
+    expect(within(sidebar).queryByRole("button", { name: /Reddit AI/ })).not.toBeInTheDocument();
+    expect(within(sidebar).queryByText("Reddit AI")).not.toBeInTheDocument();
   });
 
   it("사이드바 메타데이터 조회에 실패하면 필터 오류 알림을 표시한다", async () => {

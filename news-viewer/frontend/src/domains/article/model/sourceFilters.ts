@@ -4,7 +4,6 @@ export const SOURCE_FILTERS = [
   "네이버뉴스",
   "Google News",
   "GeekNews",
-  "Reddit AI",
   "GitHub Trending",
   "Hugging Face",
   "arXiv",
