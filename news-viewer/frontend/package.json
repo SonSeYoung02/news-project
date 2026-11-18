@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit -p . && vite build",
     "preview": "vite preview",
-    "test": "vitest run && node --test test/article-state.intent.test.mjs test/format-date.intent.test.mjs test/article-body.intent.test.mjs test/components.intent.test.mjs"
+    "test": "vitest run && node --test test/domains/article/model/article-state.intent.test.mjs test/shared/utils/format-date.intent.test.mjs test/domains/article/ui/article-body.intent.test.mjs test/app/components.intent.test.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
