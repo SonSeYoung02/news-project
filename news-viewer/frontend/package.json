@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit -p . && vite build",
     "preview": "vite preview",
-    "test": "node --test test/empty-state.test.mjs test/article-state.intent.test.mjs test/format-date.intent.test.mjs test/article-body.intent.test.mjs test/components.intent.test.mjs && node test/article-body.test.mjs"
+    "test": "vitest run && node --test test/article-state.intent.test.mjs test/format-date.intent.test.mjs test/article-body.intent.test.mjs test/components.intent.test.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -17,10 +17,16 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.12",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^6.3.0",
+    "jsdom": "^31.0.1",
     "typescript": "^7.0.2",
-    "vite": "^8.3.8"
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
   }
 }
