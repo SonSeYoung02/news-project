@@ -265,7 +265,7 @@ describe("뉴스 뷰어 전체 화면 사용자 시나리오", () => {
       totalAll: 30,
     });
 
-    const { container } = render(<App />);
+    const { container } = renderApp();
     const sidebar = container.querySelector("aside") as HTMLElement;
 
     await waitFor(() => {
