@@ -101,7 +101,7 @@ const s = {
 
 // 좁은 화면에서 기사를 읽는 동안 상단에 표시하는 목록 복귀 헤더
 interface ReadingHeaderProps {
-  selected: Article;
+  selected: Article | null;
   onBack: () => void;
 }
 
@@ -117,7 +117,7 @@ export function ReadingHeader({ selected, onBack }: ReadingHeaderProps) {
         ← 목록
       </button>
       <span style={s.compactReadingMeta}>
-        {selected.source} · {selected.major_category}
+        {selected ? `${selected.source} · ${selected.major_category}` : "기사 상세"}
       </span>
     </header>
   );
@@ -131,6 +131,7 @@ interface TopbarProps {
   query: string;
   onQueryChange: (query: string) => void;
   onSearchSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  hideOnCompact?: boolean;
 }
 
 export default function Topbar({
@@ -141,9 +142,11 @@ export default function Topbar({
   query,
   onQueryChange,
   onSearchSubmit,
+  hideOnCompact = false,
 }: TopbarProps) {
+  const hiddenOnCompact = isCompact && (Boolean(selected) || hideOnCompact);
   return (
-    <div style={{ ...s.topbar, ...(isCompact ? s.compactTopbar : {}), ...(isCompact && selected ? { display: "none" } : {}) }}>
+    <div style={{ ...s.topbar, ...(isCompact ? s.compactTopbar : {}), ...(hiddenOnCompact ? { display: "none" } : {}) }}>
       {!isCompact && (
         <div style={s.topbarTitle}>
           <span>{view === "briefing" ? "오늘의 AI 브리핑" : "기사 피드"}</span>

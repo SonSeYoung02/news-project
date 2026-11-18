@@ -1,12 +1,19 @@
 import { useEffect, useState, useRef, useReducer } from "react";
 import type { Dispatch, MutableRefObject, RefObject } from "react";
 import { fetchArticleList, fetchSourceCounts, fetchTotalArticleCount } from "../api/articleApi.ts";
-import type { Article, SourceCount, SourceItem } from "../model/article.ts";
+import type { SourceCount, SourceItem } from "../model/article.ts";
 import { articleReducer, initialArticleState } from "../model/articleState.ts";
 import type { ArticleAction, ArticleState, SelectedUpdater, View } from "../model/articleState.ts";
 import { buildSourceItems } from "../model/sourceFilters.ts";
 
 const SIZE = 20;
+
+export interface UseArticleStateOptions {
+  view: View;
+  isCompact: boolean;
+  articleId: number | null;
+  listKey: string;
+}
 
 export interface ArticleStateApi extends ArticleState {
   dispatch: Dispatch<ArticleAction>;
@@ -16,16 +23,14 @@ export interface ArticleStateApi extends ArticleState {
   viewRef: MutableRefObject<View>;
   isCompactRef: MutableRefObject<boolean>;
   listRef: RefObject<HTMLDivElement>;
-  handleSelectArticle: (article: Article) => void;
-  handleBackToList: () => void;
+  saveScrollBeforeSelect: () => void;
   startFetch: () => number;
   resetListScroll: () => void;
 }
 
 // 기사 목록·선택 상태(리듀서)와 목록 스크롤 위치를 관리한다.
-// 선택된 기사(selected)는 브리핑 보기와 기사 보기가 함께 사용한다.
 // 주의: effect 실행 순서를 유지하기 위해 App에서 useBriefing보다 먼저 호출한다.
-export function useArticleState({ view, isCompact }: { view: View; isCompact: boolean }): ArticleStateApi {
+export function useArticleState({ view, isCompact, articleId, listKey }: UseArticleStateOptions): ArticleStateApi {
   const [articleState, dispatch] = useReducer(articleReducer, initialArticleState);
 
   const setSelected = (articleOrUpdater: SelectedUpdater) => {
@@ -48,38 +53,38 @@ export function useArticleState({ view, isCompact }: { view: View; isCompact: bo
 
   const listRef = useRef<HTMLDivElement>(null);
   const listScrollPos = useRef(0);
+  const prevListKeyRef = useRef(listKey);
 
-  const handleSelectArticle = (article: Article) => {
+  const saveScrollBeforeSelect = () => {
     if (listRef.current) {
       listScrollPos.current = listRef.current.scrollTop;
     }
-    setSelected(article);
   };
 
-  const handleBackToList = () => {
-    setSelected(null);
+  const resetListScroll = () => {
+    listScrollPos.current = 0;
+    if (listRef.current) listRef.current.scrollTop = 0;
   };
 
-  const { selected } = articleState;
   useEffect(() => {
-    if (!selected && isCompact && listRef.current && listScrollPos.current > 0) {
+    if (prevListKeyRef.current !== listKey) {
+      prevListKeyRef.current = listKey;
+      resetListScroll();
+      return;
+    }
+    if (articleId === null && isCompact && listRef.current && listScrollPos.current > 0) {
       requestAnimationFrame(() => {
         if (listRef.current) {
           listRef.current.scrollTop = listScrollPos.current;
         }
       });
     }
-  }, [selected, isCompact]);
+  }, [articleId, isCompact, listKey]);
 
   const startFetch = () => {
     const nextReqId = ++reqIdRef.current;
     dispatch({ type: "START_FETCH", requestId: nextReqId, view: viewRef.current });
     return nextReqId;
-  };
-
-  const resetListScroll = () => {
-    listScrollPos.current = 0;
-    if (listRef.current) listRef.current.scrollTop = 0;
   };
 
   return {
@@ -91,33 +96,51 @@ export function useArticleState({ view, isCompact }: { view: View; isCompact: bo
     viewRef,
     isCompactRef,
     listRef,
-    handleSelectArticle,
-    handleBackToList,
+    saveScrollBeforeSelect,
     startFetch,
     resetListScroll,
   };
 }
 
-// 기사 피드 조회 조건(페이지·출처·검색어)과 사이드바 메타데이터를 관리하고 기사 목록을 불러온다.
+export interface UseArticlesOptions {
+  articleState: ArticleStateApi;
+  view: View;
+  page: number;
+  selectedSource: string;
+  search: string;
+  listKey: string;
+}
+
+// URL에서 파생된 조회 조건(보기·페이지·출처·검색어)과 사이드바 메타데이터를 관리하고 기사 목록을 불러온다.
 // requestId로 늦게 도착한 이전 응답을 버린다.
 export function useArticles({
-  dispatch,
-  reqIdRef,
-  activeReqRef,
-  viewRef,
-  isCompactRef,
-  startFetch,
-  resetListScroll,
-  total,
-}: ArticleStateApi) {
+  articleState,
+  view,
+  page,
+  selectedSource,
+  search,
+  listKey,
+}: UseArticlesOptions) {
+  const {
+    dispatch,
+    reqIdRef,
+    activeReqRef,
+    viewRef,
+    isCompactRef,
+    startFetch,
+    loading,
+    total,
+  } = articleState;
+
   const [sources, setSources] = useState<SourceCount[]>([]);
   const [totalAll, setTotalAll] = useState(0);
-  const [page, setPage] = useState(1);
-  const [selectedSource, setSelectedSource] = useState("");
-  const [query, setQuery] = useState("");
-  const [search, setSearch] = useState("");
-  const [fetchRev, setFetchRev] = useState(0);
+  const [query, setQuery] = useState(search);
   const [metadataError, setMetadataError] = useState("");
+  const [loadedListKey, setLoadedListKey] = useState("");
+
+  useEffect(() => {
+    setQuery(search);
+  }, [search]);
 
   // totalAll은 마운트 시 한 번만 불러온다(사이드바 "전체" 개수 고정).
   useEffect(() => {
@@ -136,17 +159,16 @@ export function useArticles({
     return () => controller.abort();
   }, []);
 
-  const triggerFetch = () => {
-    startFetch();
-    setFetchRev((r) => r + 1);
-  };
+  const currentListKey = view === "articles" ? listKey : "";
 
   useEffect(() => {
-    const controller = new AbortController();
-    let currentReqId = reqIdRef.current;
-    if (activeReqRef.current === currentReqId) {
-      currentReqId = startFetch();
+    if (view !== "articles") {
+      setLoadedListKey("");
+      return;
     }
+
+    const controller = new AbortController();
+    const currentReqId = startFetch();
     activeReqRef.current = currentReqId;
 
     fetchArticleList(
@@ -167,6 +189,9 @@ export function useArticles({
           isCompact: isCompactRef.current,
           view: viewRef.current,
         });
+        if (reqIdRef.current === currentReqId) {
+          setLoadedListKey(currentListKey);
+        }
       })
       .catch(() => {
         if (!controller.signal.aborted) {
@@ -176,66 +201,30 @@ export function useArticles({
             error: "기사를 불러오지 못했습니다. 서버 연결을 확인해 주세요.",
             view: viewRef.current,
           });
+          if (reqIdRef.current === currentReqId) {
+            setLoadedListKey(currentListKey);
+          }
         }
       });
 
     return () => controller.abort();
-  }, [page, selectedSource, search, fetchRev]);
+  }, [view, page, selectedSource, search, currentListKey]);
 
   const totalPages = Math.ceil(total / SIZE);
   const sourceItems: SourceItem[] = buildSourceItems(sources, totalAll);
 
-  // 아래 동작들은 호출 순서(triggerFetch → 상태 변경 → 스크롤 초기화)를 기존과 동일하게 유지한다.
-  const toggleSource = (src: string) => {
-    triggerFetch();
-    setSelectedSource((prev) => (prev === src ? "" : src));
-    setPage(1);
-    resetListScroll();
-  };
-
-  const resetFilters = () => {
-    triggerFetch();
-    setSelectedSource("");
-    setPage(1);
-    resetListScroll();
-  };
-
-  const resetSearch = () => {
-    triggerFetch();
-    setQuery("");
-    setSearch("");
-    setPage(1);
-    resetListScroll();
-  };
-
-  const submitSearch = () => {
-    triggerFetch();
-    setSearch(query);
-    setPage(1);
-    resetListScroll();
-  };
-
-  const changePage = (newPage: number) => {
-    triggerFetch();
-    setPage(newPage);
-    resetListScroll();
-  };
+  const isArticlesLoading = view === "articles" && (loading || loadedListKey !== currentListKey);
+  const isArticlesReady = view === "articles" && !loading && loadedListKey === currentListKey;
 
   return {
     sources,
     totalAll,
-    page,
-    selectedSource,
     query,
     setQuery,
-    search,
     metadataError,
     totalPages,
     sourceItems,
-    toggleSource,
-    resetFilters,
-    resetSearch,
-    submitSearch,
-    changePage,
+    isArticlesLoading,
+    isArticlesReady,
   };
 }

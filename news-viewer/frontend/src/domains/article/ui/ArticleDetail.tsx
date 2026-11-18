@@ -107,16 +107,23 @@ interface ArticleDetailProps {
   selected: Article | null;
   isCompact: boolean;
   emptyMessage: string;
+  forceShowOnCompact?: boolean;
 }
 
-export default function ArticleDetail({ selected, isCompact, emptyMessage }: ArticleDetailProps) {
+export default function ArticleDetail({
+  selected,
+  isCompact,
+  emptyMessage,
+  forceShowOnCompact = false,
+}: ArticleDetailProps) {
+  const showPanel = !isCompact || Boolean(selected) || forceShowOnCompact;
   return (
     <div
       aria-label="기사 상세"
       style={{
         ...s.detailPanel,
         ...(isCompact ? s.compactDetail : {}),
-        ...(isCompact && !selected ? { display: "none" } : {}),
+        ...(!showPanel ? { display: "none" } : {}),
       }}
     >
       {!selected ? (

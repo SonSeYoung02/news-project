@@ -207,10 +207,15 @@ export type ArticlesOption =
   | MockEndpointValue<ArticleListResponse>
   | ((query: ArticlesQuery, req: RecordedRequest) => MockEndpointValue<ArticleListResponse>);
 
+export type ArticleByIdOption =
+  | MockEndpointValue<Article>
+  | ((id: number, req: RecordedRequest) => MockEndpointValue<Article>);
+
 export interface MockApiOptions {
   briefing?: BriefingOption;
   sources?: SourcesOption;
   articles?: ArticlesOption;
+  articleById?: ArticleByIdOption;
   totalAll?: number;
 }
 
@@ -220,6 +225,7 @@ export interface MockFetchController {
   setBriefing: (next: BriefingOption) => void;
   setSources: (next: SourcesOption) => void;
   setArticles: (next: ArticlesOption) => void;
+  setArticleById: (next: ArticleByIdOption | undefined) => void;
 }
 
 function isHttpErrorPayload(value: unknown): value is HttpErrorPayload {
@@ -289,6 +295,7 @@ export function setupMockFetch(options: MockApiOptions = {}): MockFetchControlle
   let briefingOption: BriefingOption = options.briefing ?? createMockBriefing();
   let sourcesOption: SourcesOption = options.sources ?? DEFAULT_SOURCES;
   let articlesOption: ArticlesOption = options.articles ?? DEFAULT_ARTICLES;
+  let articleByIdOption: ArticleByIdOption | undefined = options.articleById;
 
   if (!globalThis.fetch) {
     globalThis.fetch = (() => Promise.reject(new Error("fetch is not implemented"))) as typeof fetch;
@@ -334,6 +341,23 @@ export function setupMockFetch(options: MockApiOptions = {}): MockFetchControlle
       return toFetchResponse(articlesOption);
     }
 
+    const articleDetailMatch = parsed.pathname.match(/^\/api\/articles\/(\d+)$/);
+    if (articleDetailMatch) {
+      const targetId = Number(articleDetailMatch[1]);
+      if (articleByIdOption !== undefined) {
+        const result =
+          typeof articleByIdOption === "function" ? articleByIdOption(targetId, req) : articleByIdOption;
+        return toFetchResponse(result);
+      }
+      if (Array.isArray(articlesOption)) {
+        const found = articlesOption.find((article) => article.id === targetId);
+        if (found) {
+          return toFetchResponse(found);
+        }
+      }
+      return toFetchResponse({ status: 404, body: { detail: "Article not found" } });
+    }
+
     return {
       ok: false,
       status: 404,
@@ -352,6 +376,9 @@ export function setupMockFetch(options: MockApiOptions = {}): MockFetchControlle
     },
     setArticles(next) {
       articlesOption = next;
+    },
+    setArticleById(next) {
+      articleByIdOption = next;
     },
   };
 }
