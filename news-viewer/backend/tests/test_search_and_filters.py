@@ -89,6 +89,7 @@ def setup_db(db_path: str):
 
 class TestSearchAndFilters(unittest.TestCase):
     def setUp(self):
+        self._prev_db_path = os.environ.get("DB_PATH")
         self.temp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.temp_db_path = self.temp_db.name
         self.temp_db.close()
@@ -97,6 +98,10 @@ class TestSearchAndFilters(unittest.TestCase):
         self.client = TestClient(main.app)
 
     def tearDown(self):
+        if self._prev_db_path is None:
+            os.environ.pop("DB_PATH", None)
+        else:
+            os.environ["DB_PATH"] = self._prev_db_path
         try:
             if os.path.exists(self.temp_db_path):
                 os.remove(self.temp_db_path)
