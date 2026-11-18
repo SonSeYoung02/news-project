@@ -1,6 +1,6 @@
 # AI·IT 뉴스 크롤링 + Gemini 묶음 번역 파이프라인
 
-네이버뉴스, Google News, GeekNews, Reddit AI, GitHub Trending, Hugging Face, arXiv, dev.to에서 최신 뉴스를 수집하여 원문 그대로 SQLite에 우선 저장하고, 매일 새벽 시간대(01:00~06:00 KST)에 Google Gemini API 무료 티어를 통해 영문 기사의 제목과 본문을 한국어로 묶음 번역하는 파이프라인입니다.
+네이버뉴스, Google News, GeekNews, GitHub Trending, Hugging Face, arXiv, dev.to(기본 활성 7개 출처; Reddit AI는 기본 비활성화)에서 최신 뉴스를 수집하여 원문 그대로 SQLite에 우선 저장하고, 매일 새벽 시간대(01:00~06:00 KST)에 Google Gemini API 무료 티어를 통해 영문 기사의 제목과 본문을 한국어로 묶음 번역하는 파이프라인입니다.
 
 ---
 
@@ -27,7 +27,7 @@ news-crawling/
 │   ├── naver.py             # 네이버뉴스 크롤러 (HTML 파싱)
 │   ├── google_news.py       # Google News 글로벌 크롤러 (RSS + trafilatura)
 │   ├── geeknews.py          # GeekNews 크롤러 (Atom/RSS)
-│   ├── reddit_ai.py         # Reddit AI 서브레딧 크롤러 (RSS)
+│   ├── reddit_ai.py         # Reddit AI 서브레딧 크롤러 (RSS, 기본 비활성화)
 │   ├── github_trending.py   # GitHub Trending 오픈소스 크롤러 (HTML)
 │   ├── huggingface.py       # Hugging Face 블로그/논문 크롤러 (RSS/HTML)
 │   ├── arxiv.py             # arXiv API 크롤러
@@ -57,7 +57,7 @@ news-crawling/
 ## 새벽 수집 및 번역 파이프라인 동작 로직
 
 1. **원문 수집 및 DB 즉시 저장 (01:00 KST)**:
-   - 8개 소스에서 기사를 수집하여 원문 그대로 `articles` 테이블에 우선 저장합니다.
+   - 기본 활성화된 7개 소스에서 기사를 수집하여 원문 그대로 `articles` 테이블에 우선 저장합니다. (`Reddit AI`는 `REDDIT_ENABLED=false` 기본값으로 비활성화되어 있으며 `1`/`true`/`yes` 설정 시 활성화됩니다.)
    - 이미 저장된 기사는 출처의 최신 정보로 갱신하며, 요약(`summarize`)이나 분류(`classify`) 호출은 전면 배제합니다.
 2. **번역 대기열 큐 생성 및 정렬**:
    - 한국어 소스는 번역 대상에서 제외합니다. 판별 기준은 크롤러가 저장하는 실제 출처 문자열 `네이버뉴스`, `GeekNews`와 레거시 값 `naver`, `geeknews`이며 대소문자를 구분하지 않습니다(`translation/queue.py`의 `KOREAN_SOURCES`).
@@ -106,6 +106,9 @@ CUTOFF_HOUR=5
 CUTOFF_MINUTE=55
 DEADLINE_HOUR=6
 DEADLINE_MINUTE=0
+
+# 수집 출처 제어
+REDDIT_ENABLED=false          # Reddit AI 수집 활성화 여부 ("1"/"true"/"yes"일 때만 활성, 기본 false)
 ```
 
 > **주의**: Google AI Studio에서 무료 티어로 발급된 API 키와 프로젝트를 사용하십시오. 유료 결제 계정이 연결된 프로젝트는 자동 과금이 발생할 수 있으므로 주의해야 합니다.

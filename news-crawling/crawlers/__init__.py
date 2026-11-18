@@ -1,6 +1,8 @@
 import logging
 from typing import Any
 
+from config import REDDIT_ENABLED
+
 from .arxiv import fetch as fetch_arxiv
 from .devto import fetch as fetch_devto
 from .geeknews import fetch as fetch_geeknews
@@ -16,16 +18,19 @@ _SOURCES = [
     ("네이버뉴스", fetch_naver),
     ("Google News", fetch_google_news),
     ("GeekNews", fetch_geeknews),
-    ("Reddit AI", fetch_reddit_ai),
     ("GitHub Trending", fetch_github_trending),
     ("Hugging Face", fetch_huggingface),
     ("arXiv", fetch_arxiv),
     ("dev.to", fetch_devto),
 ]
+if REDDIT_ENABLED:
+    _SOURCES.insert(3, ("Reddit AI", fetch_reddit_ai))
 
 
 def get_all_articles() -> list[dict[str, Any]]:
     """Collect articles from all sources, skipping failed sources."""
+    if not REDDIT_ENABLED:
+        logger.info("Reddit AI 수집 비활성화(REDDIT_ENABLED=false)")
     all_articles: list[dict] = []
     for name, fetch_fn in _SOURCES:
         try:
