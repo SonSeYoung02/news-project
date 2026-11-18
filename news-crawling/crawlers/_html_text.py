@@ -13,20 +13,84 @@ _SKIP_TAGS = {"script", "style", "noscript", "template", "head", "title", "ifram
 _LIST_TAGS = {"ul", "ol", "menu", "dl"}
 _LIST_ITEM_TAGS = {"li", "dt", "dd"}
 _BLOCK_TAGS = {
-    "address", "article", "aside", "blockquote", "body", "caption", "center",
-    "details", "dialog", "div", "fieldset", "figcaption", "figure", "footer",
-    "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "html", "legend",
-    "main", "nav", "p", "section", "summary", "table", "tbody", "thead", "tfoot", "tr",
+    "address",
+    "article",
+    "aside",
+    "blockquote",
+    "body",
+    "caption",
+    "center",
+    "details",
+    "dialog",
+    "div",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "header",
+    "hr",
+    "html",
+    "legend",
+    "main",
+    "nav",
+    "p",
+    "section",
+    "summary",
+    "table",
+    "tbody",
+    "thead",
+    "tfoot",
+    "tr",
 }
 _CELL_TAGS = {"td", "th"}
 
 # 일반 텍스트 속 "List<String>" 같은 표현을 HTML로 오인하지 않도록 알려진 태그 이름만 인정한다.
 _KNOWN_TAG_NAMES = (
-    _SKIP_TAGS | _LIST_TAGS | _LIST_ITEM_TAGS | _BLOCK_TAGS | _CELL_TAGS
+    _SKIP_TAGS
+    | _LIST_TAGS
+    | _LIST_ITEM_TAGS
+    | _BLOCK_TAGS
+    | _CELL_TAGS
     | {
-        "a", "abbr", "b", "bdi", "bdo", "big", "br", "cite", "code", "del", "dfn",
-        "em", "font", "i", "img", "ins", "kbd", "mark", "pre", "q", "s", "samp",
-        "small", "span", "strike", "strong", "sub", "sup", "time", "tt", "u", "var",
+        "a",
+        "abbr",
+        "b",
+        "bdi",
+        "bdo",
+        "big",
+        "br",
+        "cite",
+        "code",
+        "del",
+        "dfn",
+        "em",
+        "font",
+        "i",
+        "img",
+        "ins",
+        "kbd",
+        "mark",
+        "pre",
+        "q",
+        "s",
+        "samp",
+        "small",
+        "span",
+        "strike",
+        "strong",
+        "sub",
+        "sup",
+        "time",
+        "tt",
+        "u",
+        "var",
         "wbr",
     }
 )
@@ -40,10 +104,7 @@ def looks_like_html(text: str) -> bool:
     """문자열에 알려진 HTML 태그로 보이는 패턴이 있는지 확인한다."""
     if not text:
         return False
-    return any(
-        match.group(1).lower() in _KNOWN_TAG_NAMES
-        for match in _TAG_PATTERN.finditer(text)
-    )
+    return any(match.group(1).lower() in _KNOWN_TAG_NAMES for match in _TAG_PATTERN.finditer(text))
 
 
 def html_to_text(html: str) -> str:

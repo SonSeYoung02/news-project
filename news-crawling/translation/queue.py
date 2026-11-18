@@ -117,12 +117,7 @@ def get_pending_translation_queue(new_article_ids: set[int]) -> list[dict]:
         queue.append(job)
 
     # 정렬: (우선순위 그룹 0 < 1, effective_time 내림차순, crawl_time 내림차순, article_id 오름차순)
-    queue.sort(key=lambda j: (
-        j["_priority_group"],
-        -j["_effective_time"],
-        -j["_crawl_time"],
-        j["article_id"]
-    ))
+    queue.sort(key=lambda j: (j["_priority_group"], -j["_effective_time"], -j["_crawl_time"], j["article_id"]))
 
     # 내부 정렬 키 정리
     for j in queue:
@@ -130,8 +125,10 @@ def get_pending_translation_queue(new_article_ids: set[int]) -> list[dict]:
         del j["_effective_time"]
         del j["_crawl_time"]
 
-    logger.info("번역 대기열 생성 완료: 총 %d건 (신규 우선: %d건, 이전 잔여: %d건)",
-                len(queue),
-                sum(1 for j in queue if j["is_new_in_run"]),
-                sum(1 for j in queue if not j["is_new_in_run"]))
+    logger.info(
+        "번역 대기열 생성 완료: 총 %d건 (신규 우선: %d건, 이전 잔여: %d건)",
+        len(queue),
+        sum(1 for j in queue if j["is_new_in_run"]),
+        sum(1 for j in queue if not j["is_new_in_run"]),
+    )
     return queue

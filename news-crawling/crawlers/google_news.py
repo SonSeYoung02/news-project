@@ -39,12 +39,14 @@ def _fetch_query(
     category: str,
     seen_urls: set[str],
 ) -> list[dict[str, Any]]:
-    params = urlencode({
-        "q": query,
-        "hl": "en-US",
-        "gl": "US",
-        "ceid": "US:en",
-    })
+    params = urlencode(
+        {
+            "q": query,
+            "hl": "en-US",
+            "gl": "US",
+            "ceid": "US:en",
+        }
+    )
     resp = safe_get(client, f"{_BASE_URL}?{params}", timeout=REQUEST_TIMEOUT, expected_kind="xml")
 
     soup = BeautifulSoup(resp.text, "lxml-xml")
@@ -71,16 +73,18 @@ def _fetch_query(
 
         content = _fetch_article_content(client, url, fallback)
 
-        articles.append({
-            "url": url,
-            "source": "Google News",
-            "title": title.get_text(strip=True),
-            "content": content,
-            "published_at": pub_date.get_text(strip=True) if pub_date else datetime.now().isoformat(),
-            "crawled_at": datetime.now().isoformat(),
-            "major_category": category,
-            "translate_to_korean": True,
-        })
+        articles.append(
+            {
+                "url": url,
+                "source": "Google News",
+                "title": title.get_text(strip=True),
+                "content": content,
+                "published_at": pub_date.get_text(strip=True) if pub_date else datetime.now().isoformat(),
+                "crawled_at": datetime.now().isoformat(),
+                "major_category": category,
+                "translate_to_korean": True,
+            }
+        )
     return articles
 
 

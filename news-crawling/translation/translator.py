@@ -34,7 +34,10 @@ def get_gemini_client():
         if not api_key:
             raise ValueError("GEMINI_API_KEY가 설정되지 않았습니다. .env 또는 환경 변수를 확인하세요.")
         from google import genai
-        _gemini_client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta", "timeout": GEMINI_TIMEOUT_MS})
+
+        _gemini_client = genai.Client(
+            api_key=api_key, http_options={"api_version": "v1beta", "timeout": GEMINI_TIMEOUT_MS}
+        )
     return _gemini_client
 
 
@@ -126,13 +129,18 @@ def translate_article_job(
             continue
 
         if not cutoff_controller.can_request():
-            logger.info("마감 시간(05:55) 도달로 본문 번역을 중단합니다. (기사 ID: %d, 청크 %d/%d)",
-                        article_id, idx + 1, len(chunks))
+            logger.info(
+                "마감 시간(05:55) 도달로 본문 번역을 중단합니다. (기사 ID: %d, 청크 %d/%d)",
+                article_id,
+                idx + 1,
+                len(chunks),
+            )
             return False
 
         if not rate_limiter.wait_and_consume(tokens=len(raw_chunk)):
-            logger.warning("무료 한도 초과로 본문 번역을 중단합니다. (기사 ID: %d, 청크 %d/%d)",
-                           article_id, idx + 1, len(chunks))
+            logger.warning(
+                "무료 한도 초과로 본문 번역을 중단합니다. (기사 ID: %d, 청크 %d/%d)", article_id, idx + 1, len(chunks)
+            )
             return False
 
         try:

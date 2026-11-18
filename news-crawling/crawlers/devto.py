@@ -42,18 +42,20 @@ def fetch() -> list[dict[str, Any]]:
                 is_valid_id = isinstance(article_id, int) and not isinstance(article_id, bool) and article_id > 0
                 content = _fetch_full_content(client, article_id, fallback) if is_valid_id else fallback
 
-                articles.append({
-                    "url": url,
-                    "source": "dev.to",
-                    "title": title,
-                    "content": content,
-                    "published_at": item.get("published_at") or datetime.now().isoformat(),
-                    "crawled_at": datetime.now().isoformat(),
-                    "major_category": "AI",
-                    "sub_category": "개발",
-                    "tags": item.get("tag_list", [])[:10],
-                    "translate_to_korean": True,
-                })
+                articles.append(
+                    {
+                        "url": url,
+                        "source": "dev.to",
+                        "title": title,
+                        "content": content,
+                        "published_at": item.get("published_at") or datetime.now().isoformat(),
+                        "crawled_at": datetime.now().isoformat(),
+                        "major_category": "AI",
+                        "sub_category": "개발",
+                        "tags": item.get("tag_list", [])[:10],
+                        "translate_to_korean": True,
+                    }
+                )
             return articles
     except Exception as e:
         logger.error("dev.to API 크롤링 실패: %s", e)

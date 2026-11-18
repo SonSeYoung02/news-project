@@ -61,15 +61,17 @@ def _parse_feed(xml_text: str) -> list[dict[str, Any]]:
         cleaned_content = _extract_content_text(el)
         content = (cleaned_content or title)[:8000]
 
-        articles.append({
-            "url": url,
-            "source": "GeekNews",
-            "title": title,
-            "content": content,
-            "published_at": published_at,
-            "crawled_at": datetime.now().isoformat(),
-            "major_category": "AI",
-        })
+        articles.append(
+            {
+                "url": url,
+                "source": "GeekNews",
+                "title": title,
+                "content": content,
+                "published_at": published_at,
+                "crawled_at": datetime.now().isoformat(),
+                "major_category": "AI",
+            }
+        )
 
     return articles
 

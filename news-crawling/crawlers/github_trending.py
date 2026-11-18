@@ -14,10 +14,25 @@ logger = logging.getLogger(__name__)
 _TRENDING_URL = "https://github.com/trending?since=daily"
 
 _AI_KEYWORDS = [
-    "ai", "llm", "gpt", "agent", "model", "machine learning",
-    "deep learning", "neural", "transformer", "diffusion",
-    "rag", "mcp", "claude", "gemini", "openai", "ollama",
-    "vllm", "langchain", "huggingface",
+    "ai",
+    "llm",
+    "gpt",
+    "agent",
+    "model",
+    "machine learning",
+    "deep learning",
+    "neural",
+    "transformer",
+    "diffusion",
+    "rag",
+    "mcp",
+    "claude",
+    "gemini",
+    "openai",
+    "ollama",
+    "vllm",
+    "langchain",
+    "huggingface",
 ]
 _AI_REGEX = re.compile(
     r"\b(" + "|".join(re.escape(k) for k in _AI_KEYWORDS) + r")\b",

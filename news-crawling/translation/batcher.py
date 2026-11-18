@@ -1,4 +1,5 @@
 """번역 대기열을 글자 수·건수 기준 묶음으로 나눈다."""
+
 from config import BATCH_MAX_ARTICLES, BATCH_MAX_CHARS
 
 

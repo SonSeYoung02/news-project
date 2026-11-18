@@ -34,14 +34,16 @@ def _parse(xml_text: str, source_name: str, client: httpx.Client) -> list[dict[s
             "html.parser",
         ).get_text()
         article_content = _fetch_article_content(client, url)
-        articles.append({
-            "url": url,
-            "source": source_name,
-            "title": title.get_text(strip=True),
-            "content": article_content or description_text,
-            "published_at": pub_date.get_text(strip=True) if pub_date else datetime.now().isoformat(),
-            "crawled_at": datetime.now().isoformat(),
-        })
+        articles.append(
+            {
+                "url": url,
+                "source": source_name,
+                "title": title.get_text(strip=True),
+                "content": article_content or description_text,
+                "published_at": pub_date.get_text(strip=True) if pub_date else datetime.now().isoformat(),
+                "crawled_at": datetime.now().isoformat(),
+            }
+        )
     return articles
 
 

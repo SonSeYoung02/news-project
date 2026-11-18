@@ -60,16 +60,18 @@ def _fetch_blog_feed(client: httpx.Client | None = None) -> list[dict[str, Any]]
         cleaned_content = _extract_content_text(el)
         content = (cleaned_content or title)[:8000]
 
-        articles.append({
-            "url": url,
-            "source": "Hugging Face",
-            "title": title,
-            "content": content,
-            "published_at": published_at,
-            "crawled_at": datetime.now().isoformat(),
-            "major_category": "AI",
-            "translate_to_korean": True,
-        })
+        articles.append(
+            {
+                "url": url,
+                "source": "Hugging Face",
+                "title": title,
+                "content": content,
+                "published_at": published_at,
+                "crawled_at": datetime.now().isoformat(),
+                "major_category": "AI",
+                "translate_to_korean": True,
+            }
+        )
 
     return articles
 
@@ -96,16 +98,18 @@ def _fetch_papers(client: httpx.Client | None = None) -> list[dict[str, Any]]:
         if any(a["url"] == url for a in articles):
             continue
 
-        articles.append({
-            "url": url,
-            "source": "Hugging Face",
-            "title": title,
-            "content": f"Hugging Face Daily Paper: {title}\nURL: {url}",
-            "published_at": datetime.now().isoformat(),
-            "crawled_at": datetime.now().isoformat(),
-            "major_category": "AI",
-            "translate_to_korean": True,
-        })
+        articles.append(
+            {
+                "url": url,
+                "source": "Hugging Face",
+                "title": title,
+                "content": f"Hugging Face Daily Paper: {title}\nURL: {url}",
+                "published_at": datetime.now().isoformat(),
+                "crawled_at": datetime.now().isoformat(),
+                "major_category": "AI",
+                "translate_to_korean": True,
+            }
+        )
         if len(articles) >= 10:
             break
 

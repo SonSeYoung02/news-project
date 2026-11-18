@@ -74,16 +74,12 @@ def test_full_pipeline_run_integration(temp_db, mock_call_gemini_batch):
     # 2. 한국어 기사: 번역 레코드 없음 확인
     ko_id = db.get_article_id_by_url("https://example.com/int-ko")
     with db._connect() as conn:
-        row_trans = conn.execute(
-            "SELECT * FROM article_translations WHERE article_id = ?", (ko_id,)
-        ).fetchone()
+        row_trans = conn.execute("SELECT * FROM article_translations WHERE article_id = ?", (ko_id,)).fetchone()
         assert row_trans is None
 
     # 3. 락 해제 확인
     with db._connect() as conn:
-        lock = conn.execute(
-            "SELECT * FROM crawl_locks WHERE name = 'nightly_crawl'"
-        ).fetchone()
+        lock = conn.execute("SELECT * FROM crawl_locks WHERE name = 'nightly_crawl'").fetchone()
         assert lock is None
 
 
@@ -137,9 +133,7 @@ def test_pipeline_stops_on_daily_quota_without_failures(temp_db, mock_call_gemin
     assert result["translated"] == 0
     assert result["pending_translation"] == 3
     with db._connect() as conn:
-        failed = conn.execute(
-            "SELECT COUNT(*) FROM article_translations WHERE status = 'failed'"
-        ).fetchone()[0]
+        failed = conn.execute("SELECT COUNT(*) FROM article_translations WHERE status = 'failed'").fetchone()[0]
     assert failed == 0
 
 

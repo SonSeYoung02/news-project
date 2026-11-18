@@ -33,6 +33,7 @@ def crawl_and_save_articles(articles: Optional[list[dict]] = None) -> tuple[int,
 
     if articles is None:
         from crawlers import get_all_articles
+
         logger.info("뉴스 소스 수집 시작...")
         articles = get_all_articles()
         logger.info("총 %d건 수집 완료", len(articles))
@@ -60,8 +61,9 @@ def crawl_and_save_articles(articles: Optional[list[dict]] = None) -> tuple[int,
             else:
                 failed += 1
 
-    logger.info("원문 수집 및 저장 완료 | 수집: %d | 신규: %d | 갱신: %d | 실패: %d",
-                len(articles), saved, refreshed, failed)
+    logger.info(
+        "원문 수집 및 저장 완료 | 수집: %d | 신규: %d | 갱신: %d | 실패: %d", len(articles), saved, refreshed, failed
+    )
     return saved, refreshed, failed, new_ids
 
 
@@ -135,14 +137,14 @@ def run_pipeline(
             if outcome.stop_reason == "daily_quota":
                 logger.warning("일일 무료 API 한도에 도달하여 번역 작업을 중단합니다.")
                 status = "stopped_daily_quota"
-                pending_translation_count += sum(len(b) for b in batches[idx + 1:])
+                pending_translation_count += sum(len(b) for b in batches[idx + 1 :])
                 break
             if outcome.stop_reason == "permanent_error":
                 permanent_streak += 1
                 if permanent_streak >= 2:
                     logger.error("영구 오류가 연속 2회 발생하여 번역 작업을 중단합니다.")
                     status = "stopped_permanent_error"
-                    pending_translation_count += sum(len(b) for b in batches[idx + 1:])
+                    pending_translation_count += sum(len(b) for b in batches[idx + 1 :])
                     break
             else:
                 permanent_streak = 0
@@ -157,8 +159,14 @@ def run_pipeline(
 
     logger.info(
         "=== 파이프라인 종료 | 수집: %d (신규 %d, 갱신 %d, 실패 %d) | 번역 완료: %d | 실패: %d | 미완료: %d | 최종 상태: %s ===",
-        saved + refreshed, saved, refreshed, failed_crawl,
-        translated_count, failed_translation_count, pending_translation_count, status,
+        saved + refreshed,
+        saved,
+        refreshed,
+        failed_crawl,
+        translated_count,
+        failed_translation_count,
+        pending_translation_count,
+        status,
     )
     return {
         "status": status,
@@ -210,9 +218,7 @@ def main() -> None:
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, _handle_sigterm)
 
-    parser = argparse.ArgumentParser(
-        description="새벽 뉴스 수집 및 Gemini 묶음 번역 파이프라인"
-    )
+    parser = argparse.ArgumentParser(description="새벽 뉴스 수집 및 Gemini 묶음 번역 파이프라인")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--run", action="store_true", help="파이프라인 1회 즉시 실행")
     group.add_argument(

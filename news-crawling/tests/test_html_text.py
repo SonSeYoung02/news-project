@@ -15,11 +15,7 @@ _ICEWM_EXPECTED = "• IceWM은 빠르고 단순함\n• 키보드만으로도 �
 
 
 def _atom_content(inner: str, attrs: str) -> object:
-    xml = (
-        '<feed xmlns="http://www.w3.org/2005/Atom"><entry>'
-        f"<content {attrs}>{inner}</content>"
-        "</entry></feed>"
-    )
+    xml = f'<feed xmlns="http://www.w3.org/2005/Atom"><entry><content {attrs}>{inner}</content></entry></feed>'
     return BeautifulSoup(xml, "lxml-xml").find("content")
 
 

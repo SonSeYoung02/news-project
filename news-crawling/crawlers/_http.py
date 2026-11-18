@@ -77,28 +77,32 @@ _DISALLOWED_IPV6_NETWORKS = (
 
 _ALLOWED_MIME_BY_KIND: dict[str, frozenset[str]] = {
     "html": frozenset({"text/html", "application/xhtml+xml", "text/plain"}),
-    "xml": frozenset({
-        "application/rss+xml",
-        "application/atom+xml",
-        "application/rdf+xml",
-        "application/xml",
-        "text/xml",
-        "text/html",
-        "text/plain",
-    }),
+    "xml": frozenset(
+        {
+            "application/rss+xml",
+            "application/atom+xml",
+            "application/rdf+xml",
+            "application/xml",
+            "text/xml",
+            "text/html",
+            "text/plain",
+        }
+    ),
     "json": frozenset({"application/json", "text/json", "text/plain"}),
-    "any": frozenset({
-        "text/html",
-        "application/xhtml+xml",
-        "text/plain",
-        "application/rss+xml",
-        "application/atom+xml",
-        "application/rdf+xml",
-        "application/xml",
-        "text/xml",
-        "application/json",
-        "text/json",
-    }),
+    "any": frozenset(
+        {
+            "text/html",
+            "application/xhtml+xml",
+            "text/plain",
+            "application/rss+xml",
+            "application/atom+xml",
+            "application/rdf+xml",
+            "application/xml",
+            "text/xml",
+            "application/json",
+            "text/json",
+        }
+    ),
 }
 
 
@@ -309,9 +313,7 @@ class SafeNetworkBackend(httpcore.SyncBackend):
     ) -> None:
         self._allowed_ports = allowed_ports
         self._dns_semaphore = (
-            threading.BoundedSemaphore(max_dns_workers)
-            if max_dns_workers is not None
-            else _DEFAULT_DNS_SEMAPHORE
+            threading.BoundedSemaphore(max_dns_workers) if max_dns_workers is not None else _DEFAULT_DNS_SEMAPHORE
         )
 
     @staticmethod
@@ -346,9 +348,7 @@ class SafeNetworkBackend(httpcore.SyncBackend):
 
         def _worker() -> None:
             try:
-                result.append(
-                    socket.getaddrinfo(host, port, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM)
-                )
+                result.append(socket.getaddrinfo(host, port, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM))
             except BaseException as exc:
                 error.append(exc)
             finally:
@@ -608,9 +608,7 @@ def _check_content_length_header(resp: httpx.Response, max_raw_bytes: int) -> No
     except ValueError:
         return
     if declared > max_raw_bytes:
-        raise ResponseTooLargeError(
-            f"Content-Length({declared})가 허용 상한({max_raw_bytes})을 초과했습니다."
-        )
+        raise ResponseTooLargeError(f"Content-Length({declared})가 허용 상한({max_raw_bytes})을 초과했습니다.")
 
 
 def _read_bounded_body(
@@ -625,9 +623,7 @@ def _read_bounded_body(
             raise RequestBudgetExceededError("요청 시간 예산을 초과했습니다.")
         body = resp._content
         if len(body) > max_bytes:
-            raise ResponseTooLargeError(
-                f"응답 크기({len(body)})가 허용 상한({max_bytes})을 초과했습니다."
-            )
+            raise ResponseTooLargeError(f"응답 크기({len(body)})가 허용 상한({max_bytes})을 초과했습니다.")
         return body
 
     decoders = _build_decoders(resp)
@@ -641,17 +637,13 @@ def _read_bounded_body(
 
         raw_total += len(raw_chunk)
         if raw_total > max_raw_bytes:
-            raise ResponseTooLargeError(
-                f"원시 응답 크기({raw_total})가 허용 상한({max_raw_bytes})을 초과했습니다."
-            )
+            raise ResponseTooLargeError(f"원시 응답 크기({raw_total})가 허용 상한({max_raw_bytes})을 초과했습니다.")
 
         data = raw_chunk
         if not decoders:
             decoded_total += len(data)
             if decoded_total > max_bytes:
-                raise ResponseTooLargeError(
-                    f"응답 크기({decoded_total})가 허용 상한({max_bytes})을 초과했습니다."
-                )
+                raise ResponseTooLargeError(f"응답 크기({decoded_total})가 허용 상한({max_bytes})을 초과했습니다.")
         else:
             for idx, decoder in enumerate(decoders):
                 # 마지막 디코더는 최종 출력 바이트 예산, 중간 디코더도 동일 상한으로 폭탄 증폭을 제한한다.
@@ -703,11 +695,7 @@ def safe_get(
     """URL·리다이렉트·MIME·압축해제 바이트 상한·시간 예산을 강제하여 GET 요청을 수행한다."""
     total_budget = float(timeout)
     deadline = time.monotonic() + total_budget
-    effective_max_raw = (
-        max_raw_bytes
-        if max_raw_bytes is not None
-        else min(CRAWL_MAX_RAW_BYTES, max_bytes + 1024)
-    )
+    effective_max_raw = max_raw_bytes if max_raw_bytes is not None else min(CRAWL_MAX_RAW_BYTES, max_bytes + 1024)
     target = httpx.URL(url, params=params) if params is not None else url
     current_url = validate_url(target, allowed_ports=allowed_ports)
     history: list[httpx.Response] = []

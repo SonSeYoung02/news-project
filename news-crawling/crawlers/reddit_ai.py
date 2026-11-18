@@ -59,9 +59,7 @@ def _fetch_feed(client: httpx.Client, feed_url: str) -> list[dict[str, Any]]:
             continue
 
         published_at = (
-            _extract_tag_text(entry, "updated")
-            or _extract_tag_text(entry, "published")
-            or datetime.now().isoformat()
+            _extract_tag_text(entry, "updated") or _extract_tag_text(entry, "published") or datetime.now().isoformat()
         )
 
         cleaned_content = _extract_content_text(entry)
@@ -72,17 +70,19 @@ def _fetch_feed(client: httpx.Client, feed_url: str) -> list[dict[str, Any]]:
             content = cleaned_content
         content = content[:8000]
 
-        items.append({
-            "url": url,
-            "source": "Reddit AI",
-            "title": title,
-            "content": content,
-            "published_at": published_at,
-            "crawled_at": datetime.now().isoformat(),
-            "major_category": "AI",
-            "sub_category": "커뮤니티",
-            "translate_to_korean": True,
-        })
+        items.append(
+            {
+                "url": url,
+                "source": "Reddit AI",
+                "title": title,
+                "content": content,
+                "published_at": published_at,
+                "crawled_at": datetime.now().isoformat(),
+                "major_category": "AI",
+                "sub_category": "커뮤니티",
+                "translate_to_korean": True,
+            }
+        )
 
         if len(items) >= 5:
             break

@@ -4,9 +4,7 @@ import db
 def test_init_db_creates_all_tables(temp_db):
     """DB 초기화 시 기사·분석·번역·청크·쿼터·락 테이블이 모두 생성된다."""
     with db._connect() as conn:
-        tables = [row["name"] for row in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()]
+        tables = [row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
     assert "articles" in tables
     assert "article_analysis" in tables
     assert "article_translations" in tables
