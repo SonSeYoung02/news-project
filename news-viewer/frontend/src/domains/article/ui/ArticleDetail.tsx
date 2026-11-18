@@ -1,3 +1,4 @@
+import type { RefObject } from "react";
 import { ACCENT, ACCENT_DARK, TEXT_SECONDARY, TEXT_MUTED } from "../../../shared/styles/theme.ts";
 import { sharedStyles } from "../../../shared/styles/shared.ts";
 import type { StyleMap } from "../../../shared/styles/shared.ts";
@@ -133,6 +134,7 @@ interface ArticleDetailProps {
   errorKind?: DetailErrorKind;
   onBackToList?: () => void;
   onRetry?: () => void;
+  headingRef?: RefObject<HTMLHeadingElement>;
 }
 
 export default function ArticleDetail({
@@ -143,6 +145,7 @@ export default function ArticleDetail({
   errorKind = "none",
   onBackToList,
   onRetry,
+  headingRef,
 }: ArticleDetailProps) {
   const showPanel = !isCompact || Boolean(selected) || forceShowOnCompact;
   const showRecoveryActions = errorKind === "not_found" || errorKind === "error";
@@ -197,7 +200,13 @@ export default function ArticleDetail({
               </>
             )}
           </div>
-          <h1 style={{ ...s.detailTitle, ...(isCompact ? s.compactDetailTitle : {}) }}>{selected.title}</h1>
+          <h1
+            ref={headingRef}
+            tabIndex={-1}
+            style={{ ...s.detailTitle, ...(isCompact ? s.compactDetailTitle : {}) }}
+          >
+            {selected.title}
+          </h1>
           <div style={s.detailDate}>
             <span>{formatDate(selected.published_at) || selected.published_at?.slice(0, 10)}</span>
             {selected.url && (

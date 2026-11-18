@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation, useNavigate } from "react-router";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import App from "../../src/app/App.tsx";
 import {
   createMockArticle,
@@ -467,5 +467,98 @@ describe("URL 라우팅과 브라우저 뒤로·앞으로 가기 시나리오", 
       expect(view.getUrl()).toBe("/articles");
     });
     expect(screen.queryByText("적용된 필터:")).not.toBeInTheDocument();
+  });
+
+  it("모바일에서 기사를 열면 상세 제목으로 포커스를 옮기고 앱 버튼·브라우저 뒤로 복귀 시 보던 기사 카드로 포커스를 되돌린다", async () => {
+    setViewportCompact(true);
+    setupMockFetch({
+      articles: [
+        createMockArticle({ id: 1, source: "GeekNews", title: "모바일 포커스 기사 1" }),
+        createMockArticle({ id: 2, source: "GeekNews", title: "모바일 포커스 기사 2" }),
+      ],
+      articleById: (id) =>
+        id === 777
+          ? createMockArticle({ id: 777, source: "GeekNews", title: "목록에 없는 직접 진입 기사 777" })
+          : { status: 404 },
+    });
+    const focusSpy = vi.spyOn(HTMLElement.prototype, "focus");
+    const user = userEvent.setup();
+
+    const view = renderRoutedApp(["/articles"]);
+    const detailPanel = screen.getByLabelText("기사 상세");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /모바일 포커스 기사 2/ })).toBeInTheDocument();
+    });
+
+    // 1. 카드 2 클릭 -> 상세 제목 heading(tabIndex=-1, preventScroll)으로 포커스 이동
+    await user.click(screen.getByRole("button", { name: /모바일 포커스 기사 2/ }));
+    const heading2 = within(detailPanel).getByRole("heading", { level: 1, name: "모바일 포커스 기사 2" });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(heading2);
+    });
+    expect(heading2).toHaveAttribute("tabindex", "-1");
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+
+    // 2. 앱 내 ← 목록 버튼 복귀 -> 보던 기사 2 카드로 포커스 복원
+    await user.click(screen.getByRole("button", { name: "기사 목록으로 돌아가기" }));
+    const card2 = screen.getByRole("button", { name: /모바일 포커스 기사 2/ });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(card2);
+    });
+
+    // 3. 카드 1 클릭 -> 브라우저 뒤로 가기 시에도 보던 기사 1 카드로 포커스 복원
+    await user.click(screen.getByRole("button", { name: /모바일 포커스 기사 1/ }));
+    const heading1 = within(detailPanel).getByRole("heading", { level: 1, name: "모바일 포커스 기사 1" });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(heading1);
+    });
+
+    view.goBack();
+    const card1 = screen.getByRole("button", { name: /모바일 포커스 기사 1/ });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(card1);
+    });
+    view.unmount();
+
+    // 4. 목록에 없는 기사(777) 직접 진입 후 목록으로 돌아가면 해당 카드가 없으므로 다른 카드로 포커스를 옮기지 않는다
+    const directView = renderRoutedApp(["/articles/777"]);
+    const directDetail = screen.getByLabelText("기사 상세");
+    await waitFor(() => {
+      expect(
+        within(directDetail).getByRole("heading", { level: 1, name: "목록에 없는 직접 진입 기사 777" }),
+      ).toBeInTheDocument();
+    });
+    expect(document.activeElement).toBe(
+      within(directDetail).getByRole("heading", { level: 1, name: "목록에 없는 직접 진입 기사 777" }),
+    );
+
+    const backButton = screen.getByRole("button", { name: "기사 목록으로 돌아가기" });
+    await user.click(backButton);
+    await waitFor(() => {
+      expect(directView.getUrl()).toBe("/articles");
+      expect(screen.getByRole("button", { name: /모바일 포커스 기사 1/ })).toBeInTheDocument();
+    });
+    expect(document.activeElement).not.toBe(screen.getByRole("button", { name: /모바일 포커스 기사 1/ }));
+    expect(document.activeElement).not.toBe(screen.getByRole("button", { name: /모바일 포커스 기사 2/ }));
+    directView.unmount();
+
+    // 5. 데스크톱에서는 자동 선택 시 상세 제목으로 포커스를 빼앗지 않는다
+    setViewportCompact(false);
+    renderRoutedApp(["/articles"]);
+    await waitFor(() => {
+      expect(
+        within(screen.getByLabelText("기사 상세")).getByRole("heading", {
+          level: 1,
+          name: "모바일 포커스 기사 1",
+        }),
+      ).toBeInTheDocument();
+    });
+    expect(document.activeElement).not.toBe(
+      within(screen.getByLabelText("기사 상세")).getByRole("heading", {
+        level: 1,
+        name: "모바일 포커스 기사 1",
+      }),
+    );
   });
 });

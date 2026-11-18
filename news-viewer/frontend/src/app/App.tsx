@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Navigate, Route, Routes } from "react-router";
 import {
@@ -173,6 +173,65 @@ function NewsViewerShell() {
     });
   }, [isDefined, route, selected?.title, detailErrorKind]);
 
+  const detailHeadingRef = useRef<HTMLHeadingElement>(null);
+  const prevRouteContextRef = useRef<{ articleId: number | null; listUrl: string }>({
+    articleId: null,
+    listUrl,
+  });
+  const lastFocusedDetailIdRef = useRef<number | null>(null);
+  const pendingReturnFocusIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isDefined) return;
+
+    const prev = prevRouteContextRef.current;
+    prevRouteContextRef.current = { articleId, listUrl };
+
+    if (!isCompact) {
+      lastFocusedDetailIdRef.current = articleId;
+      pendingReturnFocusIdRef.current = null;
+      return;
+    }
+
+    if (articleId !== null) {
+      pendingReturnFocusIdRef.current = null;
+      if (
+        selected !== null &&
+        selected.id === articleId &&
+        lastFocusedDetailIdRef.current !== articleId &&
+        detailHeadingRef.current
+      ) {
+        detailHeadingRef.current.focus({ preventScroll: true });
+        lastFocusedDetailIdRef.current = articleId;
+      }
+      return;
+    }
+
+    lastFocusedDetailIdRef.current = null;
+
+    if (prev.listUrl !== listUrl) {
+      pendingReturnFocusIdRef.current = null;
+    } else if (prev.articleId !== null) {
+      pendingReturnFocusIdRef.current = prev.articleId;
+    }
+
+    if (pendingReturnFocusIdRef.current !== null && activeListReady && !activeListLoading) {
+      const targetId = pendingReturnFocusIdRef.current;
+      pendingReturnFocusIdRef.current = null;
+      const card = listRef.current?.querySelector<HTMLElement>(`[data-article-id="${targetId}"]`);
+      card?.focus({ preventScroll: true });
+    }
+  }, [
+    isDefined,
+    isCompact,
+    articleId,
+    listUrl,
+    selected,
+    activeListReady,
+    activeListLoading,
+    listRef,
+  ]);
+
   if (!isDefined) {
     return <Navigate to="/briefing" replace />;
   }
@@ -300,6 +359,7 @@ function NewsViewerShell() {
             errorKind={detailErrorKind}
             onBackToList={goBackToList}
             onRetry={retryDetail}
+            headingRef={detailHeadingRef}
           />
         </div>
       </main>

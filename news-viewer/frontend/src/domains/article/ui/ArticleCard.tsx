@@ -77,6 +77,7 @@ export default function ArticleCard({ article: a, selected, onSelect }: ArticleC
   return (
     <button
       type="button"
+      data-article-id={a.id}
       aria-pressed={selected}
       onClick={() => onSelect(a)}
       style={s.card(selected)}
