@@ -25,7 +25,7 @@ export type ArticleAction =
       isCompact?: boolean;
       view?: View;
     }
-  | { type: "FETCH_ERROR"; requestId?: number; error?: string }
+  | { type: "FETCH_ERROR"; requestId?: number; error?: string; view?: View }
   | { type: "SELECT_ARTICLE"; payload?: SelectedUpdater; article?: Article | null }
   | { type: "RESIZE_VIEWPORT"; isCompact: boolean; view?: View };
 
@@ -87,7 +87,7 @@ export function articleReducer(state: ArticleState, action: ArticleAction): Arti
         total: 0,
         loading: false,
         error: action.error || "기사를 불러오지 못했습니다. 서버 연결을 확인해 주세요.",
-        selected: null,
+        selected: action.view === "briefing" ? state.selected : null,
       };
     }
 
