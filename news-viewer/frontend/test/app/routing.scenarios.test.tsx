@@ -283,4 +283,66 @@ describe("URL 라우팅과 브라우저 뒤로·앞으로 가기 시나리오", 
       expect(mock.calls).toContain("/api/articles?page=1&size=20");
     });
   });
+
+  it("라우트와 기사 조회 상태에 맞게 브라우저 탭 제목(document.title)을 갱신한다", async () => {
+    setViewportCompact(true);
+    const mock = setupMockFetch({
+      briefing: createMockBriefing({
+        articles: [createMockArticle({ id: 101, title: "모바일 브리핑 기사" })],
+      }),
+      articles: [
+        createMockArticle({ id: 1, source: "GeekNews", title: "GeekNews 에이전트 기사", content: "에이전트 본문" }),
+        createMockArticle({ id: 2, source: "arXiv", title: "arXiv 논문 기사", content: "에이전트 논문" }),
+      ],
+      articleById: { status: 404 },
+    });
+    const user = userEvent.setup();
+
+    const view = renderRoutedApp(["/briefing"]);
+    await waitFor(() => {
+      expect(document.title).toBe("오늘의 AI 브리핑 - 뉴스 뷰어");
+    });
+
+    const sidebar = view.container.querySelector("aside") as HTMLElement;
+    await user.click(within(sidebar).getByRole("button", { name: "필터" }));
+    await user.click(within(sidebar).getByRole("button", { name: "전체 기사" }));
+    await waitFor(() => {
+      expect(document.title).toBe("기사 피드 - 뉴스 뷰어");
+    });
+
+    await user.click(within(sidebar).getByRole("button", { name: "필터" }));
+    await user.click(within(sidebar).getByRole("button", { name: /^GeekNews/ }));
+    await waitFor(() => {
+      expect(document.title).toBe("GeekNews - 기사 피드 - 뉴스 뷰어");
+    });
+
+    const searchInput = screen.getByPlaceholderText("기사 제목, 본문으로 검색...");
+    await user.type(searchInput, "에이전트{Enter}");
+    await waitFor(() => {
+      expect(document.title).toBe("GeekNews · '에이전트' - 기사 피드 - 뉴스 뷰어");
+    });
+
+    await user.click(screen.getByRole("button", { name: /GeekNews 에이전트 기사/ }));
+    await waitFor(() => {
+      expect(document.title).toBe("GeekNews 에이전트 기사 - 뉴스 뷰어");
+    });
+
+    view.goBack();
+    await waitFor(() => {
+      expect(document.title).toBe("GeekNews · '에이전트' - 기사 피드 - 뉴스 뷰어");
+    });
+
+    view.unmount();
+    const notFoundView = renderRoutedApp(["/articles/999999"]);
+    await waitFor(() => {
+      expect(document.title).toBe("기사를 찾을 수 없음 - 뉴스 뷰어");
+    });
+    notFoundView.unmount();
+
+    mock.setArticleById({ status: 500 });
+    renderRoutedApp(["/articles/888888"]);
+    await waitFor(() => {
+      expect(document.title).toBe("기사를 불러오지 못함 - 뉴스 뷰어");
+    });
+  });
 });

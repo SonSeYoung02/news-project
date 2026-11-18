@@ -5,6 +5,7 @@ import {
   ArticleDetail,
   ArticleList,
   getDetailEmptyMessage,
+  getDocumentTitle,
   pickAutoSelectedArticleId,
   shouldAutoSelectFirstArticle,
   useArticleDetail,
@@ -127,7 +128,7 @@ function NewsViewerShell() {
   const activeListLoading = view === "briefing" ? briefingLoading : isArticlesLoading;
   const activeListError = view === "briefing" ? briefingError : error;
 
-  const { selected, detailLoading, detailError } = useArticleDetail({
+  const { selected, detailLoading, detailError, detailErrorKind } = useArticleDetail({
     articleId,
     listArticles: activeListArticles,
     listReady: activeListReady,
@@ -162,6 +163,15 @@ function NewsViewerShell() {
     preferredArticleId,
     replaceAutoSelectedArticle,
   ]);
+
+  useEffect(() => {
+    if (!isDefined) return;
+    document.title = getDocumentTitle({
+      route,
+      articleTitle: selected?.title ?? null,
+      detailErrorKind,
+    });
+  }, [isDefined, route, selected?.title, detailErrorKind]);
 
   if (!isDefined) {
     return <Navigate to="/briefing" replace />;

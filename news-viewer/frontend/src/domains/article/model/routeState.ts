@@ -225,11 +225,64 @@ export function shouldNavigateBackInHistory(navState: unknown, current: RouteSta
   return typeof fromListUrl === "string" && fromListUrl === getListUrl(current);
 }
 
-export function resolveArticleDetailError(error: unknown): string {
+export type DetailErrorKind = "none" | "not_found" | "error";
+
+export function resolveArticleDetailErrorKind(error: unknown): Exclude<DetailErrorKind, "none"> {
   if (error && typeof error === "object" && "status" in error && (error as { status: unknown }).status === 404) {
+    return "not_found";
+  }
+  return "error";
+}
+
+export function resolveArticleDetailError(error: unknown): string {
+  if (resolveArticleDetailErrorKind(error) === "not_found") {
     return "요청한 기사를 찾을 수 없습니다.";
   }
   return "기사를 불러오지 못했습니다. 서버 연결을 확인해 주세요.";
+}
+
+const APP_TITLE = "뉴스 뷰어";
+
+export interface DocumentTitleParams {
+  route: RouteState;
+  articleTitle?: string | null;
+  detailErrorKind?: DetailErrorKind;
+}
+
+export function getDocumentTitle({
+  route,
+  articleTitle,
+  detailErrorKind = "none",
+}: DocumentTitleParams): string {
+  if (route.articleId !== null) {
+    const trimmedTitle = articleTitle?.trim();
+    if (trimmedTitle) {
+      return `${trimmedTitle} - ${APP_TITLE}`;
+    }
+    if (detailErrorKind === "not_found") {
+      return `기사를 찾을 수 없음 - ${APP_TITLE}`;
+    }
+    if (detailErrorKind === "error") {
+      return `기사를 불러오지 못함 - ${APP_TITLE}`;
+    }
+    return APP_TITLE;
+  }
+
+  if (route.view === "briefing") {
+    return `오늘의 AI 브리핑 - ${APP_TITLE}`;
+  }
+
+  const filterParts: string[] = [];
+  if (route.source) {
+    filterParts.push(route.source);
+  }
+  const trimmedSearch = route.search.trim();
+  if (trimmedSearch) {
+    filterParts.push(`'${trimmedSearch}'`);
+  }
+
+  const feedTitle = filterParts.length > 0 ? `${filterParts.join(" · ")} - 기사 피드` : "기사 피드";
+  return `${feedTitle} - ${APP_TITLE}`;
 }
 
 export interface DetailEmptyMessageParams {

@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchArticleById } from "../api/articleApi.ts";
 import type { Article } from "../model/article.ts";
-import { resolveArticleDetailError } from "../model/routeState.ts";
+import {
+  resolveArticleDetailError,
+  resolveArticleDetailErrorKind,
+} from "../model/routeState.ts";
+import type { DetailErrorKind } from "../model/routeState.ts";
 
 interface UseArticleDetailOptions {
   articleId: number | null;
@@ -15,6 +19,7 @@ export function useArticleDetail({ articleId, listArticles, listReady }: UseArti
   const [fetchedId, setFetchedId] = useState<number | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
+  const [detailErrorKind, setDetailErrorKind] = useState<DetailErrorKind>("none");
   const detailReqRef = useRef(0);
 
   const articleInList =
@@ -29,6 +34,7 @@ export function useArticleDetail({ articleId, listArticles, listReady }: UseArti
       setFetchedId(null);
       setDetailLoading(false);
       setDetailError("");
+      setDetailErrorKind("none");
       return;
     }
 
@@ -42,6 +48,7 @@ export function useArticleDetail({ articleId, listArticles, listReady }: UseArti
       setFetchedId(articleId);
       setDetailLoading(false);
       setDetailError("");
+      setDetailErrorKind("none");
       return;
     }
 
@@ -51,6 +58,7 @@ export function useArticleDetail({ articleId, listArticles, listReady }: UseArti
     setFetchedId(null);
     setDetailLoading(true);
     setDetailError("");
+    setDetailErrorKind("none");
 
     fetchArticleById(articleId, controller.signal)
       .then((article) => {
@@ -64,6 +72,7 @@ export function useArticleDetail({ articleId, listArticles, listReady }: UseArti
           setFetchedArticle(null);
           setFetchedId(articleId);
           setDetailError(resolveArticleDetailError(err));
+          setDetailErrorKind(resolveArticleDetailErrorKind(err));
           setDetailLoading(false);
         }
       });
@@ -72,20 +81,36 @@ export function useArticleDetail({ articleId, listArticles, listReady }: UseArti
   }, [articleId, listReady, articleInList]);
 
   if (articleId === null) {
-    return { selected: null, detailLoading: false, detailError: "" };
+    return {
+      selected: null,
+      detailLoading: false,
+      detailError: "",
+      detailErrorKind: "none" as DetailErrorKind,
+    };
   }
 
   if (articleInList) {
-    return { selected: articleInList, detailLoading: false, detailError: "" };
+    return {
+      selected: articleInList,
+      detailLoading: false,
+      detailError: "",
+      detailErrorKind: "none" as DetailErrorKind,
+    };
   }
 
   if (!listReady || fetchedId !== articleId) {
-    return { selected: null, detailLoading: true, detailError: "" };
+    return {
+      selected: null,
+      detailLoading: true,
+      detailError: "",
+      detailErrorKind: "none" as DetailErrorKind,
+    };
   }
 
   return {
     selected: fetchedArticle,
     detailLoading,
     detailError,
+    detailErrorKind,
   };
 }

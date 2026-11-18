@@ -5,6 +5,7 @@ import {
   createDetailNavigationState,
   createFilterTransitionState,
   getDetailEmptyMessage,
+  getDocumentTitle,
   getListUrl,
   getPreferredArticleId,
   isDefinedRoute,
@@ -296,5 +297,75 @@ describe("URL과 화면 상태 변환·라우트 이동 규칙", () => {
         articleCount: 3,
       }),
     ).toBe(false);
+  });
+
+  it("현재 라우트와 기사 조회 상태에 따라 브라우저 탭 제목을 생성한다", () => {
+    expect(
+      getDocumentTitle({
+        route: parseRouteState("/briefing", ""),
+      }),
+    ).toBe("오늘의 AI 브리핑 - 뉴스 뷰어");
+
+    expect(
+      getDocumentTitle({
+        route: parseRouteState("/articles", ""),
+      }),
+    ).toBe("기사 피드 - 뉴스 뷰어");
+
+    expect(
+      getDocumentTitle({
+        route: parseRouteState("/articles", "?source=GeekNews"),
+      }),
+    ).toBe("GeekNews - 기사 피드 - 뉴스 뷰어");
+
+    expect(
+      getDocumentTitle({
+        route: parseRouteState("/articles", "?q=%EA%B2%80%EC%83%89%EC%96%B4"),
+      }),
+    ).toBe("'검색어' - 기사 피드 - 뉴스 뷰어");
+
+    expect(
+      getDocumentTitle({
+        route: parseRouteState("/articles", "?source=GeekNews&q=%EA%B2%80%EC%83%89%EC%96%B4&page=2"),
+      }),
+    ).toBe("GeekNews · '검색어' - 기사 피드 - 뉴스 뷰어");
+
+    expect(
+      getDocumentTitle({
+        route: parseRouteState("/articles/42", "?source=GeekNews"),
+        articleTitle: "AI 에이전트 실전 적용기",
+      }),
+    ).toBe("AI 에이전트 실전 적용기 - 뉴스 뷰어");
+
+    expect(
+      getDocumentTitle({
+        route: parseRouteState("/briefing/7", ""),
+        articleTitle: "오늘의 브리핑 대표 기사",
+      }),
+    ).toBe("오늘의 브리핑 대표 기사 - 뉴스 뷰어");
+
+    expect(
+      getDocumentTitle({
+        route: parseRouteState("/articles/999", ""),
+        articleTitle: null,
+        detailErrorKind: "not_found",
+      }),
+    ).toBe("기사를 찾을 수 없음 - 뉴스 뷰어");
+
+    expect(
+      getDocumentTitle({
+        route: parseRouteState("/articles/888", ""),
+        articleTitle: null,
+        detailErrorKind: "error",
+      }),
+    ).toBe("기사를 불러오지 못함 - 뉴스 뷰어");
+
+    expect(
+      getDocumentTitle({
+        route: parseRouteState("/articles/777", ""),
+        articleTitle: null,
+        detailErrorKind: "none",
+      }),
+    ).toBe("뉴스 뷰어");
   });
 });

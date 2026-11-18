@@ -10,6 +10,8 @@ export { SOURCE_FILTERS, buildSourceItems } from "./model/sourceFilters.ts";
 export type {
   RouteState,
   DetailNavigationState,
+  DetailErrorKind,
+  DocumentTitleParams,
   DetailEmptyMessageParams,
   AutoSelectParams,
 } from "./model/routeState.ts";
@@ -34,7 +36,9 @@ export {
   getPreferredArticleId,
   pickAutoSelectedArticleId,
   shouldNavigateBackInHistory,
+  resolveArticleDetailErrorKind,
   resolveArticleDetailError,
+  getDocumentTitle,
   getDetailEmptyMessage,
   shouldAutoSelectFirstArticle,
 } from "./model/routeState.ts";
