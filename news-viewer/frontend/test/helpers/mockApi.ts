@@ -1,6 +1,11 @@
 import { act } from "@testing-library/react";
 import { vi } from "vitest";
-import type { Article, ArticleListResponse, BriefingResponse, SourceCount } from "../../src/api/types.ts";
+import type {
+  Article,
+  ArticleListResponseDto as ArticleListResponse,
+  SourceCount,
+} from "../../src/domains/article/index.ts";
+import type { Briefing, BriefingResponseDto as BriefingResponse } from "../../src/domains/briefing/index.ts";
 
 const COMPACT_QUERY = "(max-width: 1023px)";
 let compactViewport = false;
@@ -88,7 +93,7 @@ export function createMockArticle(overrides: Partial<Article> = {}): Article {
   };
 }
 
-export function createMockBriefing(overrides: Partial<BriefingResponse> = {}): BriefingResponse {
+export function createMockBriefing(overrides: Partial<Briefing> = {}): Briefing {
   return {
     generated_at: "2026-11-18T09:00:00Z",
     window_start: "2026-11-17T09:00:00Z",
