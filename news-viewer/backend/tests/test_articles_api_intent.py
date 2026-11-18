@@ -166,6 +166,58 @@ def test_articles_tags_deserialized_as_list(client, seed_db):
     assert all(isinstance(item["tags"], list) for item in by_id.values())
 
 
+@pytest.mark.parametrize(
+    ("raw_tags", "expected_tags"),
+    [
+        ("null", []),
+        ("123", []),
+        ("true", []),
+        ('"text"', []),
+        ("{}", []),
+        ('["a", 1]', ["a"]),
+        ('["a", null, {"k": "v"}, true, "b"]', ["a", "b"]),
+    ],
+)
+def test_articles_non_array_or_mixed_tags_normalized_to_string_list(client, seed_db, raw_tags, expected_tags):
+    """DB에 비배열 JSON이나 비문자열 요소가 섞인 tags가 저장되어도 목록·상세 API는 200과 문자열 배열만 반환한다."""
+    seed_db.article(article_id=1, tags=raw_tags)
+
+    list_resp = client.get("/articles")
+    assert list_resp.status_code == 200
+    items = list_resp.json()["articles"]
+    assert len(items) == 1
+    assert items[0]["tags"] == expected_tags
+    assert all(isinstance(tag, str) for tag in items[0]["tags"])
+
+    detail_resp = client.get("/articles/1")
+    assert detail_resp.status_code == 200
+    detail = detail_resp.json()
+    assert detail["tags"] == expected_tags
+    assert all(isinstance(tag, str) for tag in detail["tags"])
+
+
+@pytest.mark.parametrize(
+    ("analysis_tags", "expected_tags"),
+    [
+        ("null", []),
+        ("{}", []),
+        ('["분석태그", 42]', ["분석태그"]),
+    ],
+)
+def test_article_analysis_non_array_tags_normalized_to_string_list(client, seed_db, analysis_tags, expected_tags):
+    """article_analysis.tags에 비배열 JSON이나 비문자열 요소가 있어도 목록·상세 API는 200과 문자열 배열만 반환한다."""
+    seed_db.article(article_id=1, tags='["원본태그"]')
+    seed_db.analysis(article_id=1, tags=analysis_tags)
+
+    list_resp = client.get("/articles")
+    assert list_resp.status_code == 200
+    assert list_resp.json()["articles"][0]["tags"] == expected_tags
+
+    detail_resp = client.get("/articles/1")
+    assert detail_resp.status_code == 200
+    assert detail_resp.json()["tags"] == expected_tags
+
+
 def test_articles_list_response_matches_schema_contract(client, seed_db):
     """GET /articles 응답 구조와 각 원소의 필드 집합이 ArticleListResponse·Article 스키마와 정확히 일치한다."""
     seed_db.article(
