@@ -76,7 +76,7 @@ def find_paginated(
             SELECT
                 {select_fields}
             {base_query}
-            ORDER BY a.crawled_at DESC LIMIT ? OFFSET ?
+            ORDER BY a.crawled_at DESC, a.id DESC LIMIT ? OFFSET ?
             """,
             params + [size, offset],
         ).fetchall()

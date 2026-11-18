@@ -32,6 +32,46 @@ def test_articles_sorted_by_latest_crawled_at_desc(client, seed_db):
     assert ids == [2, 3, 1]
 
 
+def test_articles_same_crawled_at_sorted_by_id_desc_and_stable_across_pages(client, seed_db):
+    """crawled_at이 같은 기사가 id와 다른 순서로 삽입돼도 crawled_at DESC, id DESC로 정렬되고 페이지 경계에서 중복·누락이 없다."""
+    same_crawled_at = "2026-11-10T11:00:00"
+    seed_db.article(
+        article_id=20,
+        title="가장 먼저 수집된 기사",
+        crawled_at="2026-11-10T10:00:00",
+    )
+    for aid in (3, 1, 6, 2, 5, 4):
+        seed_db.article(
+            article_id=aid,
+            title=f"동일 수집 시각 기사 {aid}",
+            crawled_at=same_crawled_at,
+        )
+    seed_db.article(
+        article_id=10,
+        title="가장 최근에 수집된 기사",
+        crawled_at="2026-11-10T12:00:00",
+    )
+
+    expected_ids = [10, 6, 5, 4, 3, 2, 1, 20]
+
+    full_resp = client.get("/articles", params={"page": 1, "size": 20})
+    assert full_resp.status_code == 200
+    full_body = full_resp.json()
+    assert full_body["total"] == len(expected_ids)
+    assert [item["id"] for item in full_body["articles"]] == expected_ids
+
+    paged_ids = []
+    for page in range(1, 5):
+        resp = client.get("/articles", params={"page": page, "size": 2})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == len(expected_ids)
+        paged_ids.extend(item["id"] for item in body["articles"])
+
+    assert paged_ids == expected_ids
+    assert len(paged_ids) == len(set(paged_ids)) == len(expected_ids)
+
+
 def test_articles_pagination_slices_and_preserves_total(client, seed_db):
     """페이지네이션 요청 시 page/size에 맞는 구간만 반환하고 전체 건수(total)를 유지한다."""
     for idx in range(1, 6):
