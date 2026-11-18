@@ -1,5 +1,7 @@
 from typing import Optional
-from fastapi import APIRouter, Path as ApiPath, Query
+
+from fastapi import APIRouter, Query
+from fastapi import Path as ApiPath
 
 from app.article import service
 from app.article.schemas import Article, ArticleListResponse

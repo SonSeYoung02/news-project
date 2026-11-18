@@ -1,7 +1,7 @@
 """app.article.service 순수 비즈니스 규칙 단위 테스트."""
 
-from fastapi import HTTPException
 import pytest
+from fastapi import HTTPException
 
 from app.article import service
 from app.common.config import MAX_OFFSET, MAX_PAGE

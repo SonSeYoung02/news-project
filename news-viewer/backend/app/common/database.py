@@ -1,11 +1,11 @@
-from contextlib import contextmanager
 import hashlib
 import json
 import os
-from pathlib import Path
 import sqlite3
+from contextlib import contextmanager
+from pathlib import Path
 
-from app.common.config import DB_PATH, _KOREAN_SOURCES_SQL
+from app.common.config import _KOREAN_SOURCES_SQL, DB_PATH
 from app.common.runtime import resolve_main_attr
 
 

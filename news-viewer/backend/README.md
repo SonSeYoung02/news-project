@@ -18,7 +18,8 @@ backend/
 ├── tests/                # 단위 및 통합 테스트
 ├── main.py               # FastAPI 애플리케이션 엔트리포인트
 ├── requirements.txt      # 런타임 Python 의존성
-├── requirements-dev.txt  # 개발/테스트 의존성
+├── requirements-dev.txt  # 개발/테스트 의존성 (pytest, ruff)
+├── ruff.toml             # Ruff 린터·포매터 설정
 └── .gitignore
 ```
 
@@ -316,8 +317,11 @@ app.add_middleware(
 독립적인 단위 테스트는 SQLite 임시 DB fixture를 활용하여 운영 DB 및 외부 API 호출 없이 실행됩니다.
 
 ```bash
-# 테스트 의존성 설치
+# 개발/테스트 의존성 설치
 python -m pip install -r requirements-dev.txt
+
+# 린트 검사 (Ruff)
+python -m ruff check .
 
 # 백엔드 전체 테스트 실행
 python -m pytest -v

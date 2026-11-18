@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+
 import main
 
 FIXED_NOW = datetime(2026, 11, 12, 12, 0, 0, tzinfo=timezone.utc)

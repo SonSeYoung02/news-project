@@ -1,10 +1,11 @@
 import sqlite3
-from contextlib import closing
 import tempfile
 import unittest
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
+
 import main
 
 NOW = datetime(2026, 11, 10, 3, tzinfo=timezone.utc)
@@ -48,7 +49,8 @@ class BriefingTests(unittest.TestCase):
         self.assertEqual({a['id'] for a in self.result()['articles']}, {1,3,7})
 
     def test_limit_diversity_and_source_metadata(self):
-        for i in range(1, 8): self.add(i)
+        for i in range(1, 8):
+            self.add(i)
         self.add(8, source='Hugging Face', topic='로보틱스')
         with closing(sqlite3.connect(self.db)) as c, c:
             c.execute('INSERT INTO article_analysis VALUES (?,?,?,?,?)', (8,'보강 요약','AI','로보틱스','["robot"]'))

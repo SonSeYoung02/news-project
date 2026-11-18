@@ -1,6 +1,3 @@
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
-from datetime import datetime, timedelta, timezone
 import os
 import random
 import sqlite3
@@ -8,9 +5,13 @@ import tempfile
 import threading
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+
 import main
 
 FIXED_NOW = datetime(2026, 11, 10, 3, 0, 0, tzinfo=timezone.utc)
@@ -191,7 +192,7 @@ class TestBriefingThroughputSecurity(unittest.TestCase):
         self._insert_articles(old_rows + recent_rows)
 
         # 최상위 후보 1000번 기사에 번역 추가
-        h1000 = main.compute_content_hash("Recent AI 1000", f"Body 1000 " + ("C" * 500))
+        h1000 = main.compute_content_hash("Recent AI 1000", "Body 1000 " + ("C" * 500))
         with closing(sqlite3.connect(self.db)) as conn, conn:
             conn.execute(
                 """

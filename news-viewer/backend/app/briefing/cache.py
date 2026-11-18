@@ -1,8 +1,8 @@
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-import threading
-import time
 from typing import Callable, Optional
 
 from app.common.config import (
