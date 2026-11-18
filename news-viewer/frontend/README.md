@@ -24,18 +24,18 @@ uvicorn main:app --reload
 
 ## 주요 기능
 
-- **카테고리 필터** — API가 반환하는 카테고리와 건수 표시
-- **출처 필터** — 네이버뉴스 / Google News / GeekNews / Reddit AI / GitHub Trending / Hugging Face / arXiv / dev.to
-- **키워드 검색** — 원문·번역 제목, 본문, 요약 대상 (Enter 또는 검색 버튼, `<form onSubmit>` 단일 처리)
+- **URL 페이지 라우팅** — `/briefing`, `/briefing/:id`, `/articles`, `/articles/:id` 경로로 보기·출처 필터·검색·페이지·선택 기사를 관리하여 브라우저 뒤로/앞으로 가기, 새로고침, 링크 직접 진입을 지원합니다 (`/` 및 미정의 경로는 `/briefing`으로 이동, 상세 직접 진입 시 목록에 없는 기사는 `GET /api/articles/{id}`로 단건 조회)
+- **카테고리·출처 필터** — 네이버뉴스 / Google News / GeekNews / Reddit AI / GitHub Trending / Hugging Face / arXiv / dev.to (`?source=` 쿼리 유지, 변경 시 1페이지로 이동)
+- **키워드 검색** — 원문·번역 제목, 본문, 요약 대상 (Enter 또는 검색 버튼, `<form onSubmit>` 단일 처리, `?q=` 쿼리 반영)
 - **기사 상세 보기** — 한국어 번역문/원문 본문(Markdown 서식 지원), LLM 요약(있는 경우), 태그, 원문 링크
-- **페이지네이션** — 페이지당 20건
-- **반응형 화면** — 1,024px 이상은 3단 구성, 작은 화면은 접이식 필터와 기사 목록·상세 전환
+- **페이지네이션** — 페이지당 20건 (`?page=` 쿼리, 기본값 1페이지는 생략)
+- **반응형 화면** — 1,024px 이상은 3단 구성, 작은 화면은 접이식 필터와 기사 목록·상세 전환 (`← 목록` 헤더로 히스토리/목록 복귀)
 
 ## 화면 디자인
 
 밝은 중립 배경의 읽기 중심 뉴스 리더 UI입니다(#22).
 
-- **색상**: 강조색은 녹색 계열(`ACCENT` `#258347`, `ACCENT_DARK` `#1e6837`, `ACCENT_LIGHT` `#edf5ef`)이며 `src/styles/theme.ts`에서 관리합니다. 본문·보조 텍스트는 WCAG AA(4.5:1) 이상의 대비를 유지합니다.
+- **색상**: 강조색은 녹색 계열(`ACCENT` `#258347`, `ACCENT_DARK` `#1e6837`, `ACCENT_LIGHT` `#edf5ef`)이며 `src/shared/styles/theme.ts`에서 관리합니다. 본문·보조 텍스트는 WCAG AA(4.5:1) 이상의 대비를 유지합니다.
 - **출처 배지**: 출처별 약어와 색상(`SOURCE_MARKS`)으로 목록과 상세 화면에서 출처를 구분합니다. 새 출처를 추가하면 `SOURCE_FILTERS`와 `SOURCE_MARKS`를 함께 갱신합니다.
 - **정보 위계**: 출처·카테고리·날짜 → 제목 → 요약 → 태그 순으로 배치하고, 카드 테두리·그림자 대신 구분선과 선택 강조로 목록을 구분합니다.
 - **사이드바**: 보기·카테고리·출처 항목에 기사 수 배지를 표시합니다.
@@ -72,18 +72,20 @@ npm run preview -- --host
 npm run build            # tsc --noEmit 타입 검사 후 dist/ 디렉토리에 프로덕션 번들 생성
 npm run preview          # 프로덕션 빌드 로컬 미리보기 (기본 127.0.0.1)
 npm run preview -- --host  # 프로덕션 빌드 미리보기 (명시적 LAN 바인딩)
-npm test                 # 기사 상태 리듀서·본문 렌더링 회귀 테스트
+npm test                 # Vitest + Testing Library 시나리오/단위/DDD 경계 테스트 및 Node 의도 테스트
 ```
 
-`npm test`의 리듀서 테스트는 Node의 타입 제거(type stripping) 기능으로 `src/features/articles/articleState.ts`를 직접 불러오므로 Node 22.18 이상이 필요합니다.
+`npm test`는 `vitest run`과 `node --test`를 함께 실행하며, `node --test`의 타입 제거(type stripping) 기능으로 TypeScript 소스를 직접 불러오므로 Node 22.18 이상이 필요합니다.
 
 ## 기술 스택
 
 | 항목 | 내용 |
 |------|------|
 | 프레임워크 | React 18 |
+| 라우팅 | react-router (`^7.18.5`) |
 | 언어 | TypeScript (strict) |
 | 번들러 | Vite 8 |
+| 테스트 | Vitest 5, Testing Library, jsdom, Node `--test` |
 | 스타일 | 인라인 스타일 (CSS-in-JS 없음) |
 | API | 같은 출처 `/api` → FastAPI `http://127.0.0.1:8000` |
 
@@ -91,26 +93,31 @@ npm test                 # 기사 상태 리듀서·본문 렌더링 회귀 테�
 
 ```
 frontend/
-├── index.html          # HTML 진입점 (#app 마운트)
-├── vite.config.ts      # Vite + React 플러그인 설정
+├── index.html          # HTML 진입점 (#app 마운트, /src/app/main.tsx 로드)
+├── vite.config.ts      # Vite + React + Vitest(jsdom) 설정
 ├── tsconfig.json       # TypeScript 설정 (strict, noEmit)
 ├── src/
-│   ├── main.tsx            # ReactDOM.createRoot 부트스트랩
-│   ├── App.tsx             # 레이아웃 조립, 보기(브리핑/기사) 전환, 자동 선택
-│   ├── vite-env.d.ts       # Vite 클라이언트 타입 참조
-│   ├── api/client.ts       # API 기본 경로(/api), fetchJSON<T>
-│   ├── api/types.ts        # 백엔드 응답 타입 (기사·브리핑·출처)
-│   ├── features/
-│   │   ├── articles/       # 기사 피드: 목록·카드·상세·본문·페이지네이션, 상태 리듀서(액션 타입), useArticles
-│   │   └── briefing/       # 오늘의 AI 브리핑: 목록, useBriefing
-│   ├── layout/             # Sidebar, Topbar(+ 모바일 읽기 헤더)
-│   ├── components/         # 여러 기능이 공유하는 UI (SourceMark)
-│   ├── hooks/              # 범용 hook (useMediaQuery)
-│   ├── styles/             # theme.ts(색상 토큰), shared.ts(공용 인라인 스타일), index.css(전역 스타일)
-│   └── utils/              # formatDate
+│   ├── app/                # 조립 루트: main.tsx(BrowserRouter), App.tsx(AppRoutes), layout/(Sidebar, Topbar)
+│   ├── domains/
+│   │   ├── article/        # 기사 도메인 (model/, api/, application/, ui/, index.ts)
+│   │   └── briefing/       # 브리핑 도메인 (model/, api/, application/, ui/, index.ts)
+│   ├── shared/             # 도메인 무관 공용 (api/client.ts, ui/, hooks/, styles/, utils/)
+│   └── vite-env.d.ts       # Vite 클라이언트 타입 참조
 ├── test/
-│   ├── empty-state.test.mjs   # 기사 상태 리듀서 회귀 테스트 (node --test)
-│   └── article-body.test.mjs  # 본문 렌더링 회귀 테스트
+│   ├── setup.ts                                # Vitest(jsdom) 전역 설정
+│   ├── helpers/mockApi.ts                      # fetch 모킹 및 뷰포트 전환 헬퍼
+│   ├── architecture/dddBoundaries.test.ts      # DDD 계층·의존 방향 검사 테스트 (Vitest)
+│   ├── app/
+│   │   ├── App.scenarios.test.tsx              # 전체 화면 사용자 시나리오 테스트 (Vitest)
+│   │   ├── routing.scenarios.test.tsx          # URL 라우팅·뒤로 가기 시나리오 테스트 (Vitest)
+│   │   └── components.intent.test.mjs          # UI 컴포넌트 렌더링 의도 테스트 (Node)
+│   ├── domains/
+│   │   ├── article/
+│   │   │   ├── model/                          # articleState.test.ts, routeState.test.ts, sourceFilters.test.ts, article-state.intent.test.mjs
+│   │   │   ├── api/                            # articleApi.test.ts, articleDetailApi.test.ts
+│   │   │   └── ui/                             # ArticleBody.test.tsx, article-body.intent.test.mjs
+│   │   └── briefing/api/briefingApi.test.ts    # 브리핑 API 어댑터 테스트 (Vitest)
+│   └── shared/utils/format-date.intent.test.mjs# 날짜 포맷 의도 테스트 (Node)
 ├── review/issue-22/    # 현재 화면 스크린샷 (루트 README에서 사용)
 └── public/
     └── favicon.svg
