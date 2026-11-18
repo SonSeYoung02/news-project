@@ -22,9 +22,7 @@ def test_rate_limiter_daily_budget_and_persistence(temp_db):
 
 def test_cutoff_controller_time_boundaries():
     """새벽 마감 시각(05:55) 경계 전후에 따라 요청 허용 여부가 정확히 갈린다."""
-    controller = CutoffController(
-        cutoff_hour=5, cutoff_minute=55, deadline_hour=6, deadline_minute=0
-    )
+    controller = CutoffController(cutoff_hour=5, cutoff_minute=55, deadline_hour=6, deadline_minute=0)
 
     # 1. 05:54:59 (마감 전 -> 허용)
     t_before = datetime(2026, 11, 12, 5, 54, 59, tzinfo=KST)

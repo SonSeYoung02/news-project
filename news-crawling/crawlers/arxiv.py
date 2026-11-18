@@ -13,11 +13,7 @@ from ._http import create_safe_client, safe_get
 logger = logging.getLogger(__name__)
 
 _API_URL = (
-    "https://export.arxiv.org/api/query"
-    "?search_query=cat:cs.AI"
-    "&sortBy=submittedDate"
-    "&sortOrder=descending"
-    "&max_results=10"
+    "https://export.arxiv.org/api/query?search_query=cat:cs.AI&sortBy=submittedDate&sortOrder=descending&max_results=10"
 )
 _TIMEOUT = 30
 _HEADERS = {
@@ -43,16 +39,18 @@ def fetch() -> list[dict[str, Any]]:
         if not title or not url:
             continue
 
-        articles.append({
-            "url": url,
-            "source": "arXiv",
-            "title": title,
-            "content": summary,
-            "published_at": _tag_text(entry, "published") or datetime.now().isoformat(),
-            "crawled_at": datetime.now().isoformat(),
-            "major_category": "AI",
-            "translate_to_korean": True,
-        })
+        articles.append(
+            {
+                "url": url,
+                "source": "arXiv",
+                "title": title,
+                "content": summary,
+                "published_at": _tag_text(entry, "published") or datetime.now().isoformat(),
+                "crawled_at": datetime.now().isoformat(),
+                "major_category": "AI",
+                "translate_to_korean": True,
+            }
+        )
     return articles
 
 

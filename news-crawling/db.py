@@ -186,7 +186,8 @@ def refresh_article_from_source(article: dict) -> bool:
         try:
             content = article.get("content", "")
             is_fallback = bool(article.get("content_is_fallback"))
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE articles
                 SET title = ?,
                     content = CASE
@@ -199,18 +200,20 @@ def refresh_article_from_source(article: dict) -> bool:
                     sub_category = COALESCE(?, sub_category),
                     tags = ?
                 WHERE url = ?
-            """, (
-                article.get("title", ""),
-                content,
-                is_fallback,
-                content,
-                article.get("source", ""),
-                article.get("published_at"),
-                article.get("major_category"),
-                article.get("sub_category"),
-                json.dumps(article.get("tags", []), ensure_ascii=False),
-                article["url"]
-            ))
+            """,
+                (
+                    article.get("title", ""),
+                    content,
+                    is_fallback,
+                    content,
+                    article.get("source", ""),
+                    article.get("published_at"),
+                    article.get("major_category"),
+                    article.get("sub_category"),
+                    json.dumps(article.get("tags", []), ensure_ascii=False),
+                    article["url"],
+                ),
+            )
             conn.commit()
             return conn.execute("SELECT changes()").fetchone()[0] > 0
         except sqlite3.Error as e:
@@ -245,29 +248,39 @@ def update_content_if_empty(article: dict) -> bool:
 
 # --- 번역 관리 함수 ---
 
+
 def get_or_create_translation(article_id: int, content_hash: str) -> dict:
     """해당 기사와 원문 해시에 대한 번역 레코드를 조회하거나 없으면 pending 상태로 생성한다."""
     now_str = datetime.now().isoformat()
     with _connect() as conn:
-        row = conn.execute("""
+        row = conn.execute(
+            """
             SELECT * FROM article_translations
             WHERE article_id = ? AND content_hash = ?
-        """, (article_id, content_hash)).fetchone()
+        """,
+            (article_id, content_hash),
+        ).fetchone()
 
         if row:
             return dict(row)
 
-        conn.execute("""
+        conn.execute(
+            """
             INSERT OR IGNORE INTO article_translations
                 (article_id, content_hash, language, status, attempts, created_at, updated_at)
             VALUES (?, ?, 'ko', 'pending', 0, ?, ?)
-        """, (article_id, content_hash, now_str, now_str))
+        """,
+            (article_id, content_hash, now_str, now_str),
+        )
         conn.commit()
 
-        row = conn.execute("""
+        row = conn.execute(
+            """
             SELECT * FROM article_translations
             WHERE article_id = ? AND content_hash = ?
-        """, (article_id, content_hash)).fetchone()
+        """,
+            (article_id, content_hash),
+        ).fetchone()
         return dict(row)
 
 
@@ -284,7 +297,8 @@ def save_translation_chunk(
     completed_at = datetime.now().isoformat() if status == "completed" else None
     with _connect() as conn:
         try:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO translation_chunks
                     (article_id, content_hash, chunk_index, total_chunks, original_chunk, translated_chunk, status, completed_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -292,7 +306,18 @@ def save_translation_chunk(
                     translated_chunk = excluded.translated_chunk,
                     status = excluded.status,
                     completed_at = excluded.completed_at
-            """, (article_id, content_hash, chunk_index, total_chunks, original_chunk, translated_chunk, status, completed_at))
+            """,
+                (
+                    article_id,
+                    content_hash,
+                    chunk_index,
+                    total_chunks,
+                    original_chunk,
+                    translated_chunk,
+                    status,
+                    completed_at,
+                ),
+            )
             conn.commit()
             return True
         except sqlite3.Error as e:
@@ -303,11 +328,14 @@ def save_translation_chunk(
 def get_translation_chunks(article_id: int, content_hash: str) -> list[dict]:
     """해당 기사의 모든 번역 조각 목록을 순서대로 반환한다."""
     with _connect() as conn:
-        rows = conn.execute("""
+        rows = conn.execute(
+            """
             SELECT * FROM translation_chunks
             WHERE article_id = ? AND content_hash = ?
             ORDER BY chunk_index ASC
-        """, (article_id, content_hash)).fetchall()
+        """,
+            (article_id, content_hash),
+        ).fetchall()
         return [dict(r) for r in rows]
 
 
@@ -320,12 +348,15 @@ def update_translation_title(
     now_str = datetime.now().isoformat()
     with _connect() as conn:
         try:
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE article_translations
                 SET translated_title = ?,
                     updated_at = ?
                 WHERE article_id = ? AND content_hash = ?
-            """, (translated_title, now_str, article_id, content_hash))
+            """,
+                (translated_title, now_str, article_id, content_hash),
+            )
             conn.commit()
             return conn.execute("SELECT changes()").fetchone()[0] > 0
         except sqlite3.Error as e:
@@ -344,7 +375,8 @@ def complete_article_translation(
     now_str = datetime.now().isoformat()
     with _connect() as conn:
         try:
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE article_translations
                 SET translated_title = ?,
                     translated_content = ?,
@@ -353,7 +385,9 @@ def complete_article_translation(
                     model = ?,
                     updated_at = ?
                 WHERE article_id = ? AND content_hash = ?
-            """, (translated_title, translated_content, now_str, model, now_str, article_id, content_hash))
+            """,
+                (translated_title, translated_content, now_str, model, now_str, article_id, content_hash),
+            )
             conn.commit()
             return conn.execute("SELECT changes()").fetchone()[0] > 0
         except sqlite3.Error as e:
@@ -371,21 +405,27 @@ def fail_article_translation(
     now_str = datetime.now().isoformat()
     with _connect() as conn:
         try:
-            row = conn.execute("""
+            row = conn.execute(
+                """
                 SELECT attempts FROM article_translations
                 WHERE article_id = ? AND content_hash = ?
-            """, (article_id, content_hash)).fetchone()
+            """,
+                (article_id, content_hash),
+            ).fetchone()
             attempts = (row["attempts"] if row else 0) + 1
             new_status = "failed" if attempts >= max_attempts else "pending"
 
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE article_translations
                 SET attempts = ?,
                     last_error = ?,
                     status = ?,
                     updated_at = ?
                 WHERE article_id = ? AND content_hash = ?
-            """, (attempts, error, new_status, now_str, article_id, content_hash))
+            """,
+                (attempts, error, new_status, now_str, article_id, content_hash),
+            )
             conn.commit()
             return True
         except sqlite3.Error as e:
@@ -395,12 +435,16 @@ def fail_article_translation(
 
 # --- 일일 무료 한도 추적 함수 ---
 
+
 def get_daily_quota(date_str: str) -> dict:
     """지정된 날짜의 일일 호출 횟수와 토큰 사용량을 반환한다."""
     with _connect() as conn:
-        row = conn.execute("""
+        row = conn.execute(
+            """
             SELECT * FROM translation_quota WHERE date = ?
-        """, (date_str,)).fetchone()
+        """,
+            (date_str,),
+        ).fetchone()
         if row:
             return dict(row)
         return {"date": date_str, "request_count": 0, "token_count": 0, "last_request_at": None}
@@ -410,20 +454,24 @@ def increment_daily_quota(date_str: str, requests: int = 1, tokens: int = 0) -> 
     """일일 사용량을 원자적으로 증가시키고 갱신된 사용량을 반환한다."""
     now_str = datetime.now().isoformat()
     with _connect() as conn:
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO translation_quota (date, request_count, token_count, last_request_at)
             VALUES (?, ?, ?, ?)
             ON CONFLICT(date) DO UPDATE SET
                 request_count = request_count + excluded.request_count,
                 token_count = token_count + excluded.token_count,
                 last_request_at = excluded.last_request_at
-        """, (date_str, requests, tokens, now_str))
+        """,
+            (date_str, requests, tokens, now_str),
+        )
         conn.commit()
         row = conn.execute("SELECT * FROM translation_quota WHERE date = ?", (date_str,)).fetchone()
         return dict(row)
 
 
 # --- 프로세스 락 관리 함수 ---
+
 
 def acquire_crawl_lock(name: str = "nightly_crawl", timeout_minutes: int = 360) -> bool:
     """프로세스 상호 배제 락을 획득한다. 비정상 종료된 만료 락은 자동으로 회수한다."""
@@ -436,19 +484,26 @@ def acquire_crawl_lock(name: str = "nightly_crawl", timeout_minutes: int = 360) 
             try:
                 acquired_time = datetime.fromisoformat(row["acquired_at"])
                 if now - acquired_time > timedelta(minutes=timeout_minutes):
-                    logger.warning("만료된 크롤러 락(%s, pid=%s, time=%s)을 회수합니다.", name, row["pid"], row["acquired_at"])
+                    logger.warning(
+                        "만료된 크롤러 락(%s, pid=%s, time=%s)을 회수합니다.", name, row["pid"], row["acquired_at"]
+                    )
                     conn.execute("DELETE FROM crawl_locks WHERE name = ?", (name,))
                 else:
-                    logger.warning("이미 실행 중인 크롤러 프로세스가 존재합니다 (pid=%s, time=%s)", row["pid"], row["acquired_at"])
+                    logger.warning(
+                        "이미 실행 중인 크롤러 프로세스가 존재합니다 (pid=%s, time=%s)", row["pid"], row["acquired_at"]
+                    )
                     return False
             except Exception:
                 conn.execute("DELETE FROM crawl_locks WHERE name = ?", (name,))
 
         try:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO crawl_locks (name, acquired_at, pid, info)
                 VALUES (?, ?, ?, ?)
-            """, (name, now_str, pid, f"Started at {now_str}"))
+            """,
+                (name, now_str, pid, f"Started at {now_str}"),
+            )
             conn.commit()
             return True
         except sqlite3.IntegrityError:
@@ -464,6 +519,7 @@ def release_crawl_lock(name: str = "nightly_crawl") -> bool:
 
 
 # --- 기존 분석 호환 함수 (보존) ---
+
 
 def save_analysis(
     article_id: int,
@@ -499,9 +555,7 @@ def save_analysis(
 
 def has_analysis(article_id: int) -> bool:
     with _connect() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM article_analysis WHERE article_id = ?", (article_id,)
-        ).fetchone()
+        row = conn.execute("SELECT 1 FROM article_analysis WHERE article_id = ?", (article_id,)).fetchone()
         return row is not None
 
 

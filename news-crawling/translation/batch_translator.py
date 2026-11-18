@@ -19,9 +19,8 @@ TRANSIENT_RETRY_SECONDS = 10.0
 RATIO_CHECK_MIN_CHARS = 200
 
 BATCH_SYSTEM_INSTRUCTION = (
-    TRANSLATION_SYSTEM_INSTRUCTION
-    + "\n5. 입력은 JSON 배열이며 각 항목은 id, title, content를 가집니다. "
-    "각 항목을 같은 id로 번역해 [{\"id\", \"title\", \"content\"}] 형태의 JSON 배열만 출력하십시오."
+    TRANSLATION_SYSTEM_INSTRUCTION + "\n5. 입력은 JSON 배열이며 각 항목은 id, title, content를 가집니다. "
+    '각 항목을 같은 id로 번역해 [{"id", "title", "content"}] 형태의 JSON 배열만 출력하십시오.'
 )
 
 
@@ -91,8 +90,7 @@ def classify_api_error(e: Exception) -> Exception:
 def call_gemini_batch(batch: list[dict], model: str = GEMINI_MODEL) -> str:
     """여러 기사를 한 번의 Gemini 요청으로 번역하고 원시 응답 텍스트를 반환한다."""
     payload = [
-        {"id": job["article_id"], "title": job.get("title", ""), "content": job.get("content", "")}
-        for job in batch
+        {"id": job["article_id"], "title": job.get("title", ""), "content": job.get("content", "")} for job in batch
     ]
     contents = "다음 JSON 배열의 기사들을 한국어로 번역해 주세요:\n\n" + json.dumps(payload, ensure_ascii=False)
     config = types.GenerateContentConfig(

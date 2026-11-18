@@ -77,14 +77,16 @@ def test_duplicate_article_refresh_preserves_count(temp_db):
 
 def test_no_summarize_or_classify_during_crawling(temp_db):
     """수집 단계에서는 요약·분류용 llm 모듈을 로드하거나 호출하지 않는다."""
-    sample = [{
-        "url": "https://example.com/no-llm",
-        "source": "huggingface",
-        "title": "HF Daily Papers",
-        "content": "New paper about transformers.",
-        "published_at": "2026-11-12T00:00:00Z",
-        "crawled_at": "2026-11-12T01:00:00",
-    }]
+    sample = [
+        {
+            "url": "https://example.com/no-llm",
+            "source": "huggingface",
+            "title": "HF Daily Papers",
+            "content": "New paper about transformers.",
+            "published_at": "2026-11-12T00:00:00Z",
+            "crawled_at": "2026-11-12T01:00:00",
+        }
+    ]
     saved, refreshed, failed, new_ids = main.crawl_and_save_articles(sample)
     assert saved == 1
     # 요약·분류용 llm 모듈은 제거되었으며, 수집 단계에서 다시 불러오지 않아야 한다.

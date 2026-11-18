@@ -25,9 +25,7 @@ def _fetch_article_content(client: httpx.Client, url: str) -> str:
         resp = safe_get(client, url, timeout=REQUEST_TIMEOUT, expected_kind="html")
         soup = BeautifulSoup(resp.text, "lxml")
         article_body = (
-            soup.select_one("#dic_area")
-            or soup.select_one("#articleBodyContents")
-            or soup.select_one(".article_body")
+            soup.select_one("#dic_area") or soup.select_one("#articleBodyContents") or soup.select_one(".article_body")
         )
         if article_body:
             return article_body.get_text(separator="\n", strip=True)
@@ -71,14 +69,16 @@ def fetch() -> list[dict[str, Any]]:
                         if not content:
                             continue
 
-                        articles.append({
-                            "url": href,
-                            "source": "네이버뉴스",
-                            "title": title,
-                            "content": content,
-                            "published_at": datetime.now().isoformat(),
-                            "crawled_at": datetime.now().isoformat(),
-                        })
+                        articles.append(
+                            {
+                                "url": href,
+                                "source": "네이버뉴스",
+                                "title": title,
+                                "content": content,
+                                "published_at": datetime.now().isoformat(),
+                                "crawled_at": datetime.now().isoformat(),
+                            }
+                        )
                 except Exception as e:
                     logger.error("네이버 섹션 수집 실패 url=%s: %s", section_url, e)
     except Exception as e:

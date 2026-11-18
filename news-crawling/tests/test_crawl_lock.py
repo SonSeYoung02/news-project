@@ -42,15 +42,17 @@ def _spawn_lock_holder(lock_path: Path) -> subprocess.Popen:
 
 
 def _probe_lock_in_subprocess(lock_path: Path) -> bool:
-    script = "\n".join([
-        "import sys",
-        "from crawl_lock import SharedCrawlLock",
-        "lock = SharedCrawlLock(sys.argv[1])",
-        "acquired = lock.acquire()",
-        "if acquired:",
-        "    lock.release()",
-        "sys.exit(0 if acquired else 2)",
-    ])
+    script = "\n".join(
+        [
+            "import sys",
+            "from crawl_lock import SharedCrawlLock",
+            "lock = SharedCrawlLock(sys.argv[1])",
+            "acquired = lock.acquire()",
+            "if acquired:",
+            "    lock.release()",
+            "sys.exit(0 if acquired else 2)",
+        ]
+    )
     res = subprocess.run(
         [sys.executable, "-c", script, str(lock_path)],
         cwd=str(_CRAWLER_ROOT),
@@ -134,9 +136,7 @@ def test_run_pipeline_skips_when_shared_lock_held_by_another_process(temp_crawl_
         holder.stderr.close()
 
 
-def test_run_pipeline_holds_shared_lock_across_crawl_translation_and_db_save(
-    temp_crawl_lock, fake_gemini_batch
-):
+def test_run_pipeline_holds_shared_lock_across_crawl_translation_and_db_save(temp_crawl_lock, fake_gemini_batch):
     """파이프라인 실행 시 수집부터 번역·DB 저장까지 공유 락을 유지하고 종료 후 해제한다."""
     observed = {}
     orig_crawl = main.crawl_and_save_articles

@@ -16,9 +16,7 @@ class TestGeminiClientConfig:
 
         tr._gemini_client = None
         try:
-            with patch.dict(os.environ, {"GEMINI_API_KEY": "dummy"}), patch(
-                "google.genai.Client"
-            ) as mock_client:
+            with patch.dict(os.environ, {"GEMINI_API_KEY": "dummy"}), patch("google.genai.Client") as mock_client:
                 tr.get_gemini_client()
             kwargs = mock_client.call_args.kwargs
             assert kwargs["http_options"]["api_version"] == "v1beta"
@@ -110,10 +108,12 @@ class TestBatchParsing:
         """정상 JSON 배열 응답에서 모든 유효 기사 ID를 파싱한다."""
         from translation.batch_translator import parse_batch_response
 
-        raw = self._raw([
-            {"id": 1, "title": "AI 칩", "content": _ko(20)},
-            {"id": 2, "title": "GPU 소식", "content": _ko(20)},
-        ])
+        raw = self._raw(
+            [
+                {"id": 1, "title": "AI 칩", "content": _ko(20)},
+                {"id": 2, "title": "GPU 소식", "content": _ko(20)},
+            ]
+        )
         assert set(parse_batch_response(raw, _src_batch())) == {1, 2}
 
     def test_parse_accepts_string_ids(self):
@@ -148,12 +148,14 @@ class TestBatchParsing:
         """없는 ID, 중복 ID, 한글 미포함 응답 항목은 모두 검증 단계에서 제외한다."""
         from translation.batch_translator import parse_batch_response
 
-        raw = self._raw([
-            {"id": 99, "title": "없는 기사", "content": _ko(20)},
-            {"id": 1, "title": "AI 칩", "content": _ko(20)},
-            {"id": 1, "title": "AI 칩 2", "content": _ko(20)},
-            {"id": 2, "title": "GPU news", "content": "Nvidia reports " * 30},
-        ])
+        raw = self._raw(
+            [
+                {"id": 99, "title": "없는 기사", "content": _ko(20)},
+                {"id": 1, "title": "AI 칩", "content": _ko(20)},
+                {"id": 1, "title": "AI 칩 2", "content": _ko(20)},
+                {"id": 2, "title": "GPU news", "content": "Nvidia reports " * 30},
+            ]
+        )
         assert parse_batch_response(raw, _src_batch()) == {}
 
     def test_parse_drops_suspected_summary(self):
@@ -251,13 +253,7 @@ class TestErrorClassification:
         """분당 한도 429 오류는 RetryInfo 대기 초를 포함한 MinuteRateLimited로 분류한다."""
         from translation.batch_translator import MinuteRateLimited, classify_api_error
 
-        details = {
-            "error": {
-                "details": [
-                    {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "37s"}
-                ]
-            }
-        }
+        details = {"error": {"details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "37s"}]}}
         r = classify_api_error(_FakeApiError(429, "slow down", details))
         assert isinstance(r, MinuteRateLimited)
         assert r.retry_seconds == 37
@@ -345,9 +341,10 @@ class TestTranslateBatch:
         from translation import batch_translator as bt
 
         limiter = limiter or _CountingRateLimiter()
-        with mock.patch(
-            "translation.batch_translator.call_gemini_batch", side_effect=side_effect
-        ) as m, mock.patch("translation.batch_translator.time.sleep") as sl:
+        with (
+            mock.patch("translation.batch_translator.call_gemini_batch", side_effect=side_effect) as m,
+            mock.patch("translation.batch_translator.time.sleep") as sl,
+        ):
             out = bt.translate_batch(batch, limiter, **kw)
         return out, m, sl
 
@@ -421,9 +418,7 @@ class TestTranslateBatch:
         from translation.batch_translator import BatchParseError
 
         batch = [_tjob(i) for i in range(1, 5)]
-        out, m, _ = self._run(
-            batch, [BatchParseError("x"), _ok_raw([1, 2]), _ok_raw([3, 4])]
-        )
+        out, m, _ = self._run(batch, [BatchParseError("x"), _ok_raw([1, 2]), _ok_raw([3, 4])])
         assert m.call_count == 3
         assert sorted(out.completed_ids) == [1, 2, 3, 4]
 
@@ -432,9 +427,7 @@ class TestTranslateBatch:
         from translation.batch_translator import BatchParseError
 
         batch = [_tjob(i) for i in range(1, 5)]
-        out, m, _ = self._run(
-            batch, [BatchParseError("x")], _CountingRateLimiter(allowed=1)
-        )
+        out, m, _ = self._run(batch, [BatchParseError("x")], _CountingRateLimiter(allowed=1))
         assert out.stop_reason == "daily_quota"
         assert sorted(out.pending_ids) == [1, 2, 3, 4]
         assert out.failed_ids == []

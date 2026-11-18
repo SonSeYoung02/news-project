@@ -291,6 +291,7 @@ class TestRedirectAndDnsSecurity:
         def fake_connect_tcp(host, port, timeout=None, local_address=None, socket_options=None):
             # Run real resolution + validation inside SafeNetworkBackend without real external TCP.
             with patch("socket.getaddrinfo", return_value=public_record):
+
                 class RecordingSock:
                     def settimeout(self, t):
                         pass
@@ -456,9 +457,7 @@ class TestStreamingSizeBudgetAndMime:
                     yield b"x"
 
         def respond(req: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                200, stream=SlowTrickleStream(), headers={"Content-Type": "text/plain"}
-            )
+            return httpx.Response(200, stream=SlowTrickleStream(), headers={"Content-Type": "text/plain"})
 
         start = time.monotonic()
         with httpx.Client(transport=httpx.MockTransport(respond)) as client:
@@ -531,9 +530,7 @@ class TestStreamingSizeBudgetAndMime:
                 super().connect(("127.0.0.1", local_port))
 
         try:
-            with patch("socket.getaddrinfo", return_value=public_record), patch(
-                "socket.socket", RedirectToLocalSocket
-            ):
+            with patch("socket.getaddrinfo", return_value=public_record), patch("socket.socket", RedirectToLocalSocket):
                 with create_safe_client() as client:
                     # 1. keepalive 정상 요청 연속 성공 확인
                     r1 = safe_get(client, "http://trickle.example/ok1", timeout=2.0)
@@ -591,9 +588,7 @@ class TestStreamingSizeBudgetAndMime:
                 pass
 
         start = time.monotonic()
-        with patch("socket.getaddrinfo", return_value=multi_records), patch(
-            "socket.socket", SlowFailSocket
-        ):
+        with patch("socket.getaddrinfo", return_value=multi_records), patch("socket.socket", SlowFailSocket):
             with pytest.raises(httpcore.ConnectTimeout):
                 backend.connect_tcp("multi.example", 443, timeout=0.20)
         elapsed = time.monotonic() - start
@@ -728,9 +723,7 @@ class TestStreamingSizeBudgetAndMime:
         public_record = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
         try:
             transport = SafeHTTPTransport(verify=client_ctx)
-            with patch("socket.getaddrinfo", return_value=public_record), patch(
-                "socket.socket", RedirectTlsSocket
-            ):
+            with patch("socket.getaddrinfo", return_value=public_record), patch("socket.socket", RedirectTlsSocket):
                 with create_safe_client(transport=transport) as client:
                     r1 = safe_get(client, "https://tls-test.example/one", timeout=2.0)
                     r2 = safe_get(client, "https://tls-test.example/two", timeout=2.0)
@@ -789,10 +782,7 @@ class TestStreamingSizeBudgetAndMime:
 
         with httpx.Client(transport=httpx.MockTransport(respond)) as client:
             assert safe_get(client, "https://publisher.example/raw-deflate").text == "hello raw deflate"
-            assert (
-                safe_get(client, "https://publisher.example/chained").text
-                == "hello chained gzip+deflate"
-            )
+            assert safe_get(client, "https://publisher.example/chained").text == "hello chained gzip+deflate"
             with pytest.raises(ResponseTooLargeError):
                 safe_get(client, "https://publisher.example/deflate-bomb", max_bytes=32768)
 
@@ -840,9 +830,7 @@ class TestAllCrawlersSecurityAndRegression:
         stream = CountingStream(block_size=65536, blocks=32)
         with httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, stream=stream))) as client:
             with patch.object(google_news.trafilatura, "extract", return_value="A" * 9000):
-                content = google_news._fetch_article_content(
-                    client, "https://publisher.example/large", "fallback"
-                )
+                content = google_news._fetch_article_content(client, "https://publisher.example/large", "fallback")
         assert content == "fallback"
         assert stream.bytes_read < 2_097_152
 
@@ -993,9 +981,11 @@ class TestAllCrawlersSecurityAndRegression:
             "crawlers.github_trending.create_safe_client",
             side_effect=lambda **kw: create_safe_client(
                 transport=httpx.MockTransport(
-                    lambda r: httpx.Response(302, headers={"Location": "http://127.0.0.1/secret"})
-                    if r.url.host == "github.com"
-                    else httpx.Response(200, text="SECRET")
+                    lambda r: (
+                        httpx.Response(302, headers={"Location": "http://127.0.0.1/secret"})
+                        if r.url.host == "github.com"
+                        else httpx.Response(200, text="SECRET")
+                    )
                 ),
                 **kw,
             ),
@@ -1037,10 +1027,13 @@ class TestAllCrawlersSecurityAndRegression:
                 return httpx.Response(429, json={"error": "rate limited"})
             return httpx.Response(200, text=arxiv_xml, headers={"Content-Type": "application/atom+xml"})
 
-        with patch(
-            "crawlers.arxiv.create_safe_client",
-            side_effect=lambda **kw: create_safe_client(transport=httpx.MockTransport(arxiv_respond), **kw),
-        ), patch("crawlers.arxiv.time.sleep"):
+        with (
+            patch(
+                "crawlers.arxiv.create_safe_client",
+                side_effect=lambda **kw: create_safe_client(transport=httpx.MockTransport(arxiv_respond), **kw),
+            ),
+            patch("crawlers.arxiv.time.sleep"),
+        ):
             arxiv_items = arxiv.fetch()
         assert attempts["count"] == 2
         assert len(arxiv_items) == 1
