@@ -32,6 +32,7 @@ from crawlers._http import (
     UnsupportedContentTypeError,
     create_safe_client,
     safe_get,
+    safe_post,
     validate_ip_address,
     validate_url,
 )
@@ -785,6 +786,49 @@ class TestStreamingSizeBudgetAndMime:
             assert safe_get(client, "https://publisher.example/chained").text == "hello chained gzip+deflate"
             with pytest.raises(ResponseTooLargeError):
                 safe_get(client, "https://publisher.example/deflate-bomb", max_bytes=32768)
+
+    def test_safe_post_enforces_url_validation_redirect_size_and_mime(self):
+        """safe_post도 SSRF 차단, 리다이렉트 검증, 응답 크기 상한, MIME 검증을 강제한다."""
+        requested: list[str] = []
+        stream = CountingStream(block_size=65536, blocks=32)
+
+        def respond(req: httpx.Request) -> httpx.Response:
+            requested.append(str(req.url))
+            if req.url.path == "/redir":
+                return httpx.Response(302, headers={"Location": "http://169.254.169.254/latest/meta-data/"})
+            if req.url.path == "/pdf":
+                return httpx.Response(200, text="pdf", headers={"Content-Type": "application/pdf"})
+            if req.url.path == "/large":
+                return httpx.Response(200, stream=stream, headers={"Content-Type": "application/json"})
+            return httpx.Response(
+                200,
+                text=f'{{"echo":"{req.content.decode("utf-8")}"}}',
+                headers={"Content-Type": "application/json"},
+            )
+
+        with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+            with pytest.raises(UnsafeURLError):
+                safe_post(client, "http://127.0.0.1/rpc", data={"f.req": "x"})
+            with pytest.raises(UnsafeURLError):
+                safe_post(client, "https://publisher.example/redir", data={"f.req": "x"})
+            with pytest.raises(UnsupportedContentTypeError):
+                safe_post(client, "https://publisher.example/pdf", data={"f.req": "x"}, expected_kind="json")
+            with pytest.raises(ResponseTooLargeError):
+                safe_post(
+                    client,
+                    "https://publisher.example/large",
+                    data={"f.req": "x"},
+                    max_bytes=262144,
+                    max_raw_bytes=262144,
+                    expected_kind="json",
+                )
+            resp = safe_post(client, "https://publisher.example/ok", data={"f.req": "hello"}, expected_kind="json")
+            assert resp.status_code == 200
+            assert "f.req=hello" in resp.text
+
+        assert "http://127.0.0.1/rpc" not in requested
+        assert "http://169.254.169.254/latest/meta-data/" not in requested
+        assert stream.bytes_read < 2_097_152
 
 
 class TestAllCrawlersSecurityAndRegression:
