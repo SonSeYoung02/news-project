@@ -412,4 +412,60 @@ describe("URL 라우팅과 브라우저 뒤로·앞으로 가기 시나리오", 
     await user.click(within(mobile404Detail).getByRole("button", { name: "목록으로 돌아가기" }));
     expect(mobile404View.getUrl()).toBe("/articles?source=GeekNews&q=AI&page=2");
   });
+
+  it("검색어 URL 진입 시 적용된 필터 바에 검색 칩이 표시되고 ✕ 클릭 시 출처를 유지한 1페이지로 검색만 해제한다", async () => {
+    setViewportCompact(true);
+    const pagedArticles = Array.from({ length: 25 }, (_, i) =>
+      createMockArticle({
+        id: i + 1,
+        source: "GeekNews",
+        title: `에이전트 기사 ${i + 1}`,
+        content: "에이전트 본문",
+      }),
+    );
+    const mock = setupMockFetch({ articles: pagedArticles });
+    const user = userEvent.setup();
+
+    const view = renderRoutedApp(["/articles?source=GeekNews&q=에이전트&page=2"]);
+
+    await waitFor(() => {
+      expect(screen.getByText("에이전트 기사 21")).toBeInTheDocument();
+    });
+
+    const filterBar = screen.getByLabelText("활성 필터");
+    expect(within(filterBar).getByText("출처: GeekNews")).toBeInTheDocument();
+    expect(within(filterBar).getByText("검색: 에이전트")).toBeInTheDocument();
+    expect(within(filterBar).getByRole("button", { name: "필터 초기화" })).toBeInTheDocument();
+
+    // 검색 칩 ✕ 클릭 시 출처(GeekNews)를 유지한 1페이지로 이동하고 검색어만 해제한다
+    await user.click(within(filterBar).getByRole("button", { name: "검색: 에이전트 필터 해제" }));
+    await waitFor(() => {
+      expect(view.getUrl()).toBe("/articles?source=GeekNews");
+    });
+    expect(mock.calls).toContain("/api/articles?page=1&size=20&source=GeekNews");
+    expect(screen.getByPlaceholderText("기사 제목, 본문으로 검색...")).toHaveValue("");
+    expect(screen.queryByRole("button", { name: /^검색:/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "출처: GeekNews 필터 해제" })).toBeInTheDocument();
+
+    // 다시 검색을 적용한 뒤 기존 '필터 초기화'를 누르면 출처만 해제되고 검색 칩은 유지된다
+    const searchInput = screen.getByPlaceholderText("기사 제목, 본문으로 검색...");
+    await user.type(searchInput, "에이전트{Enter}");
+    await waitFor(() => {
+      expect(view.getUrl()).toBe("/articles?source=GeekNews&q=%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8");
+    });
+
+    await user.click(screen.getByRole("button", { name: "필터 초기화" }));
+    await waitFor(() => {
+      expect(view.getUrl()).toBe("/articles?q=%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8");
+    });
+    expect(screen.getByText("적용된 필터:")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "검색: 에이전트 필터 해제" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "출처: GeekNews 필터 해제" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "검색: 에이전트 필터 해제" }));
+    await waitFor(() => {
+      expect(view.getUrl()).toBe("/articles");
+    });
+    expect(screen.queryByText("적용된 필터:")).not.toBeInTheDocument();
+  });
 });

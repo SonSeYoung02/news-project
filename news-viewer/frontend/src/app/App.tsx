@@ -202,6 +202,11 @@ function NewsViewerShell() {
     retryBriefing();
   };
 
+  const handleResetSearch = () => {
+    setFiltersOpen(false);
+    resetSearch();
+  };
+
   const isDetailRoute = articleId !== null;
   const detailEmptyMessage = getDetailEmptyMessage({
     view,
@@ -279,7 +284,7 @@ function NewsViewerShell() {
                 onSelectArticle={handleSelectArticle}
                 onRemoveSource={() => handleSourceClick("")}
                 onResetFilters={resetFilters}
-                onResetSearch={resetSearch}
+                onResetSearch={handleResetSearch}
                 page={page}
                 totalPages={totalPages}
                 onPageChange={changePage}
