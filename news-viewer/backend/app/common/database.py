@@ -39,9 +39,7 @@ def get_connection():
 
 
 def _has_translations_table(conn: sqlite3.Connection) -> bool:
-    row = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='article_translations'"
-    ).fetchone()
+    row = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='article_translations'").fetchone()
     return row is not None
 
 

@@ -60,16 +60,21 @@ def setup_db(db_path: str):
         """)
 
         # 기사 1: 영문 기사 + 한국어 번역 완료
-        h1 = main.compute_content_hash("Deep Learning Breakthrough", "Transformers are revolutionizing neural networks.")
+        h1 = main.compute_content_hash(
+            "Deep Learning Breakthrough", "Transformers are revolutionizing neural networks."
+        )
         conn.execute("""
             INSERT INTO articles (id, url, source, title, content, published_at, crawled_at, major_category, tags)
             VALUES (1, 'https://devto.com/dl', 'devto', 'Deep Learning Breakthrough', 'Transformers are revolutionizing neural networks.',
                     '2026-11-12T00:00:00Z', '2026-11-12T01:00:00', 'AI', '["AI"]')
         """)
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO article_translations (article_id, content_hash, translated_title, translated_content, status, created_at, updated_at)
             VALUES (1, ?, '딥러닝의 대도약', '트랜스포머가 인공신경망 분야를 혁신하고 있습니다.', 'completed', '2026-11-12T01:00:00', '2026-11-12T01:05:00')
-        """, (h1,))
+        """,
+            (h1,),
+        )
 
         # 기사 2: 한국어 기사 (네이버뉴스)
         conn.execute("""

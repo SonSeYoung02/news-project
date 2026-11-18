@@ -137,10 +137,7 @@ def get_or_compute_briefing(now: datetime, compute_fn: Callable[[datetime], dict
         if finished:
             if flight.error is not None:
                 raise flight.error
-            if (
-                flight.result is not None
-                and abs((now - flight.computed_utc).total_seconds()) < ttl
-            ):
+            if flight.result is not None and abs((now - flight.computed_utc).total_seconds()) < ttl:
                 return _clone_briefing_response(flight.result)
         return compute_fn(now)
 
