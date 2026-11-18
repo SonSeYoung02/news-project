@@ -316,14 +316,22 @@ app.add_middleware(
 독립적인 단위 테스트는 SQLite 임시 DB fixture를 활용하여 운영 DB 및 외부 API 호출 없이 실행됩니다.
 
 ```bash
-# 백엔드 전체 단위 테스트 실행
-python -m unittest discover -p "test_*.py" -v
+# 테스트 의존성 설치
+python -m pip install -r requirements-dev.txt
 
-# 개별 테스트 실행
-python -m unittest tests/test_translated_articles.py -v
-python -m unittest tests/test_search_and_filters.py -v
-python -m unittest tests/test_briefing.py -v
-python -m unittest tests/test_security_api.py -v
+# 백엔드 전체 테스트 실행
+python -m pytest -v
+
+# 파일별 테스트 실행
+python -m pytest tests/test_articles_api_intent.py -v
+python -m pytest tests/test_meta_api_intent.py -v
+python -m pytest tests/test_article_repository_intent.py -v
+python -m pytest tests/test_article_service_intent.py -v
+python -m pytest tests/test_briefing_service_intent.py -v
+python -m pytest tests/test_translated_articles.py -v
+python -m pytest tests/test_search_and_filters.py -v
+python -m pytest tests/test_briefing.py -v
+python -m pytest tests/test_security_api.py -v
 ```
 
 ---
