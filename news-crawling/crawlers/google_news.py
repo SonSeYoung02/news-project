@@ -7,7 +7,7 @@ import httpx
 import trafilatura
 from bs4 import BeautifulSoup
 
-from config import CRAWL_HEADERS, REQUEST_TIMEOUT
+from config import REQUEST_TIMEOUT
 
 from ._http import create_safe_client, safe_get
 

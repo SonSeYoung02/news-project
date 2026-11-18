@@ -1,5 +1,4 @@
 import re
-from typing import List
 
 
 def chunk_text(text: str, max_chars: int = 2000) -> list[str]:

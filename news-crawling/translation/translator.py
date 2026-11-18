@@ -1,9 +1,7 @@
 import logging
 import os
-import time
-from typing import Optional
 
-from config import CHUNK_MAX_CHARS, GEMINI_API_KEY, GEMINI_MODEL, GEMINI_TIMEOUT_MS, REQUIRE_FREE_TIER
+from config import CHUNK_MAX_CHARS, GEMINI_API_KEY, GEMINI_MODEL, GEMINI_TIMEOUT_MS
 from db import (
     complete_article_translation,
     fail_article_translation,

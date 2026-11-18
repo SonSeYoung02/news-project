@@ -80,10 +80,10 @@ def run_pipeline(
     """
     from crawl_lock import SharedCrawlLock
     from db import acquire_crawl_lock, init_db, release_crawl_lock
-    from translation.queue import get_pending_translation_queue
-    from translation.rate_limiter import CutoffController, RateLimiter
     from translation.batch_translator import translate_batch
     from translation.batcher import build_batches
+    from translation.queue import get_pending_translation_queue
+    from translation.rate_limiter import CutoffController, RateLimiter
 
     logger.info("=== 새벽 뉴스 수집·번역 파이프라인 시작: %s ===", datetime.now().isoformat())
 
@@ -174,6 +174,7 @@ def run_pipeline(
 def run_scheduler() -> None:
     from apscheduler.schedulers.blocking import BlockingScheduler
     from apscheduler.triggers.cron import CronTrigger
+
     from config import SCHEDULE_HOUR, SCHEDULE_MINUTE
 
     scheduler = BlockingScheduler(timezone="Asia/Seoul")
