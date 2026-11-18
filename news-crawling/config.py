@@ -68,3 +68,6 @@ CRAWL_MAX_REDIRECTS = int(os.environ.get("CRAWL_MAX_REDIRECTS", "5"))
 CRAWL_MAX_RESPONSE_BYTES = int(os.environ.get("CRAWL_MAX_RESPONSE_BYTES", str(1024 * 1024)))
 CRAWL_MAX_RAW_BYTES = int(os.environ.get("CRAWL_MAX_RAW_BYTES", str(1024 * 1024)))
 CRAWL_MAX_DNS_WORKERS = int(os.environ.get("CRAWL_MAX_DNS_WORKERS", "4"))
+
+# Reddit AI 수집 활성화 여부 (인증 없는 접근 차단으로 기본 비활성화, #142)
+REDDIT_ENABLED = os.environ.get("REDDIT_ENABLED", "false").strip().lower() in ("1", "true", "yes")
