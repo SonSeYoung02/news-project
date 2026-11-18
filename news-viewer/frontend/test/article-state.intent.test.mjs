@@ -190,6 +190,38 @@ describe("기사 목록 상태와 자동 선택·선택 유지 의도", () => {
     assert.equal(loaded.selected, briefingSelected);
   });
 
+  test("오늘의 AI 브리핑 보기 중에는 기사 피드 요청이 실패해도 브리핑 선택을 유지한다", () => {
+    const briefingSelected = makeArticle(500, { title: "브리핑 선택 기사" });
+    const baseState = {
+      ...initialArticleState,
+      loading: false,
+      articles: [makeArticle(1)],
+      total: 1,
+      selected: briefingSelected,
+      requestId: 1,
+    };
+
+    const fetching = articleReducer(baseState, {
+      type: "START_FETCH",
+      requestId: 2,
+      view: "briefing",
+    });
+    assert.equal(fetching.loading, true);
+    assert.equal(fetching.selected, briefingSelected);
+
+    const failed = articleReducer(fetching, {
+      type: "FETCH_ERROR",
+      requestId: 2,
+      error: "기사를 불러오지 못했습니다. 서버 연결을 확인해 주세요.",
+      view: "briefing",
+    });
+    assert.equal(failed.loading, false);
+    assert.deepEqual(failed.articles, []);
+    assert.equal(failed.total, 0);
+    assert.equal(failed.error, "기사를 불러오지 못했습니다. 서버 연결을 확인해 주세요.");
+    assert.equal(failed.selected, briefingSelected);
+  });
+
   test("더 최신 요청이 시작된 뒤 늦게 도착한 이전 성공·실패 응답은 무시한다", () => {
     const waitingLatest = {
       ...initialArticleState,

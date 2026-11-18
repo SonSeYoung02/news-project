@@ -186,6 +186,7 @@ export function useArticles({
             type: "FETCH_ERROR",
             requestId: currentReqId,
             error: "기사를 불러오지 못했습니다. 서버 연결을 확인해 주세요.",
+            view: viewRef.current,
           });
         }
       });
