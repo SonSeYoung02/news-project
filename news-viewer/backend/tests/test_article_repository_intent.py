@@ -280,7 +280,7 @@ def test_special_characters_in_q_category_source_match_literals_without_sql_erro
     seed_db.article(
         article_id=1,
         source="dev_to's",
-        major_category="AI's & \"ML\"",
+        major_category='AI\'s & "ML"',
         title="O'Reilly's Guide on 50% Growth",
         content='New "AI" model_v2 and dir\\name release',
         summary="핵심 50% 지표",
@@ -290,7 +290,7 @@ def test_special_characters_in_q_category_source_match_literals_without_sql_erro
     seed_db.article(
         article_id=2,
         source="devxto's",
-        major_category="AI's & \"ML\"",
+        major_category='AI\'s & "ML"',
         title="500 Growth Overview",
         content="modelxv2 comparison",
         summary="일반 지표",
@@ -307,7 +307,7 @@ def test_special_characters_in_q_category_source_match_literals_without_sql_erro
         page=1,
         size=10,
         offset=0,
-        category="AI's & \"ML\"",
+        category='AI\'s & "ML"',
         source="dev_to's",
     )
     assert total_cat_src == 1
@@ -320,7 +320,7 @@ def test_special_characters_in_q_category_source_match_literals_without_sql_erro
         "' OR '1'='1",
         "'; DROP TABLE articles; --",
         "' UNION SELECT 1,2,3 --",
-        "\" OR \"\"=\"",
+        '" OR ""="',
     ],
 )
 def test_sql_injection_payloads_are_safely_bound_without_leaking_or_dropping(seed_db, payload):

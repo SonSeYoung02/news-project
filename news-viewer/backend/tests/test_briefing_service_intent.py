@@ -107,21 +107,15 @@ def test_compact_briefing_candidates_returns_small_pool_unchanged_and_caps_large
 
     # 상위권이 전부 동일 출처·빈 주제로 채워져도 버킷 2·3·4가 후순위 다양성 후보를 보존해야 한다.
     limit = 3
-    large_pool = [
-        (BASE_NOW - timedelta(minutes=i), 1000 - i, "dominant_src", "")
-        for i in range(10)
-    ] + [
-        (BASE_NOW - timedelta(minutes=20 + i), 100 + i, f"src_{i % 5}", f"topic_{i % 5}")
-        for i in range(30)
+    large_pool = [(BASE_NOW - timedelta(minutes=i), 1000 - i, "dominant_src", "") for i in range(10)] + [
+        (BASE_NOW - timedelta(minutes=20 + i), 100 + i, f"src_{i % 5}", f"topic_{i % 5}") for i in range(30)
     ]
 
     compacted = service._compact_briefing_candidates(large_pool, limit=limit)
     max_expected = 3 * limit + (2 * (limit - 1) * limit + 1)  # 3*3 + 13 = 22
     assert len(compacted) <= max_expected
     assert len({item[1] for item in compacted}) == len(compacted)
-    assert service._select_briefing_ids(compacted, limit=limit) == service._select_briefing_ids(
-        large_pool, limit=limit
-    )
+    assert service._select_briefing_ids(compacted, limit=limit) == service._select_briefing_ids(large_pool, limit=limit)
 
 
 def test_compute_briefing_builds_24h_window_and_metadata(monkeypatch):

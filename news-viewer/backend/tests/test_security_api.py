@@ -141,9 +141,11 @@ class TestBriefingThroughputSecurity(unittest.TestCase):
             hash_calls += 1
             return orig_hash(title, content)
 
-        with patch.object(main, "_utc_now", return_value=FIXED_NOW), \
-             patch.object(main, "_row_to_dict", side_effect=spy_row_to_dict), \
-             patch.object(main, "compute_content_hash", side_effect=spy_hash):
+        with (
+            patch.object(main, "_utc_now", return_value=FIXED_NOW),
+            patch.object(main, "_row_to_dict", side_effect=spy_row_to_dict),
+            patch.object(main, "compute_content_hash", side_effect=spy_hash),
+        ):
             resp = self.client.get("/briefing")
 
         self.assertEqual(resp.status_code, 200)
@@ -218,9 +220,11 @@ class TestBriefingThroughputSecurity(unittest.TestCase):
             hash_calls += 1
             return orig_hash(title, content)
 
-        with patch.object(main, "_utc_now", return_value=FIXED_NOW), \
-             patch.object(main, "_row_to_dict", side_effect=spy_row_to_dict), \
-             patch.object(main, "compute_content_hash", side_effect=spy_hash):
+        with (
+            patch.object(main, "_utc_now", return_value=FIXED_NOW),
+            patch.object(main, "_row_to_dict", side_effect=spy_row_to_dict),
+            patch.object(main, "compute_content_hash", side_effect=spy_hash),
+        ):
             resp = self.client.get("/briefing")
 
         self.assertEqual(resp.status_code, 200)
@@ -312,8 +316,10 @@ class TestBriefingThroughputSecurity(unittest.TestCase):
             row_calls += 1
             return orig_row_to_dict(row)
 
-        with patch.object(main, "_utc_now", return_value=FIXED_NOW), \
-             patch.object(main, "_row_to_dict", side_effect=spy_row_to_dict):
+        with (
+            patch.object(main, "_utc_now", return_value=FIXED_NOW),
+            patch.object(main, "_row_to_dict", side_effect=spy_row_to_dict),
+        ):
             resp = self.client.get("/briefing")
 
         self.assertEqual(resp.status_code, 200)
@@ -426,9 +432,11 @@ class TestBriefingThroughputSecurity(unittest.TestCase):
         fake_mono = [100.0]
         fake_now = [FIXED_NOW]
 
-        with patch.object(main, "_connect", side_effect=spy_connect), \
-             patch.object(main, "_utc_now", side_effect=lambda: fake_now[0]), \
-             patch("time.monotonic", side_effect=lambda: fake_mono[0]):
+        with (
+            patch.object(main, "_connect", side_effect=spy_connect),
+            patch.object(main, "_utc_now", side_effect=lambda: fake_now[0]),
+            patch("time.monotonic", side_effect=lambda: fake_mono[0]),
+        ):
             first = self.client.get("/briefing")
             self.assertEqual(first.status_code, 200)
             self.assertEqual([a["id"] for a in first.json()["articles"]], [1])
@@ -535,8 +543,10 @@ class TestBriefingThroughputSecurity(unittest.TestCase):
             connect_calls += 1
             return orig_connect()
 
-        with patch.object(main, "_connect", side_effect=spy_connect), \
-             patch.object(main, "_utc_now", return_value=FIXED_NOW):
+        with (
+            patch.object(main, "_connect", side_effect=spy_connect),
+            patch.object(main, "_utc_now", return_value=FIXED_NOW),
+        ):
             r1 = self.client.get("/briefing")
             self.assertEqual(r1.status_code, 200)
             self.assertEqual([a["id"] for a in r1.json()["articles"]], [1])
@@ -595,8 +605,10 @@ class TestBriefingThroughputSecurity(unittest.TestCase):
             time.sleep(0.08)
             return orig_connect()
 
-        with patch.object(main, "_connect", side_effect=slow_connect), \
-             patch.object(main, "_utc_now", return_value=FIXED_NOW):
+        with (
+            patch.object(main, "_connect", side_effect=slow_connect),
+            patch.object(main, "_utc_now", return_value=FIXED_NOW),
+        ):
             barrier = threading.Barrier(8)
 
             def worker(_):

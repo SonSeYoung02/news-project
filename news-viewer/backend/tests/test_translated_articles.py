@@ -73,18 +73,21 @@ def init_test_db(db_path: str):
         """)
 
         # 1. 번역 완료된 영문 기사 (devto)
-        h1 = main.compute_content_hash('Original English Title', 'Original English Content')
+        h1 = main.compute_content_hash("Original English Title", "Original English Content")
         conn.execute("""
             INSERT INTO articles (id, url, source, title, content, published_at, crawled_at, major_category, tags)
             VALUES (1, 'https://dev.to/1', 'devto', 'Original English Title', 'Original English Content',
                     '2026-11-12T00:00:00Z', '2026-11-12T01:00:00', 'AI', '["AI"]')
         """)
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO article_translations
                 (article_id, content_hash, translated_title, translated_content, language, status, completed_at, model, created_at, updated_at)
             VALUES (1, ?, '한국어로 번역된 제목', '한국어로 번역된 본문 내용', 'ko', 'completed',
                     '2026-11-12T01:05:00', 'gemini-2.5-flash', '2026-11-12T01:00:00', '2026-11-12T01:05:00')
-        """, (h1,))
+        """,
+            (h1,),
+        )
 
         # 2. 미번역 영문 기사 (huggingface)
         conn.execute("""
@@ -226,19 +229,22 @@ def init_regression_db(db_path: str, with_translations_table: bool):
             """)
 
         # 1. 영문 기사 (devto, AI) - 번역 완료
-        h1 = main.compute_content_hash('AI Breakthrough Title', 'AI Breakthrough Content')
+        h1 = main.compute_content_hash("AI Breakthrough Title", "AI Breakthrough Content")
         conn.execute("""
             INSERT INTO articles (id, url, source, title, content, published_at, crawled_at, major_category, sub_category, tags)
             VALUES (1, 'https://dev.to/ai-1', 'devto', 'AI Breakthrough Title', 'AI Breakthrough Content',
                     '2026-11-12T10:00:00Z', '2026-11-12T11:00:00', 'AI', 'LLM', '["AI"]')
         """)
         if with_translations_table:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO article_translations
                     (article_id, content_hash, translated_title, translated_content, language, status, completed_at, model, created_at, updated_at)
                 VALUES (1, ?, '인공지능 대도약 제목', '인공지능 대도약 내용', 'ko', 'completed',
                         '2026-11-12T11:05:00', 'gemini-2.5-flash', '2026-11-12T11:00:00', '2026-11-12T11:05:00')
-            """, (h1,))
+            """,
+                (h1,),
+            )
 
         # 2. 영문 미번역 기사 (huggingface, AI)
         conn.execute("""

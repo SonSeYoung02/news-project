@@ -26,12 +26,8 @@ router = APIRouter()
 def get_articles(
     page: int = Query(1, ge=1, le=MAX_PAGE, description=f"페이지 번호 (1~{MAX_PAGE})"),
     size: int = Query(20, ge=1, le=100, description="페이지당 기사 수 (최대 100)"),
-    category: Optional[str] = Query(
-        None, max_length=MAX_FILTER_LENGTH, description="대분류 필터 (예: IT/과학, 경제)"
-    ),
-    source: Optional[str] = Query(
-        None, max_length=MAX_FILTER_LENGTH, description="출처 필터 (예: devto, google_news)"
-    ),
+    category: Optional[str] = Query(None, max_length=MAX_FILTER_LENGTH, description="대분류 필터 (예: IT/과학, 경제)"),
+    source: Optional[str] = Query(None, max_length=MAX_FILTER_LENGTH, description="출처 필터 (예: devto, google_news)"),
     q: Optional[str] = Query(
         None, max_length=MAX_SEARCH_QUERY_LENGTH, description="원문/번역 제목, 본문 또는 요약 검색어"
     ),

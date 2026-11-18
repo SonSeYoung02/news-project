@@ -39,9 +39,7 @@ def fetch_and_select_briefing_articles(
                 if not batch:
                     break
                 for row in batch:
-                    published = parse_time_fn(row["published_at"]) or parse_time_fn(
-                        row["crawled_at"]
-                    )
+                    published = parse_time_fn(row["published_at"]) or parse_time_fn(row["crawled_at"])
                     if published is None or not (window_start <= published <= window_end):
                         continue
                     topic = (row["sub_category"] or "").strip()
