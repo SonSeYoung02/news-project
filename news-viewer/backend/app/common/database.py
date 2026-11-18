@@ -50,10 +50,12 @@ def _row_to_dict(row) -> dict:
     tags = d.get("tags")
     if isinstance(tags, str):
         try:
-            d["tags"] = json.loads(tags)
+            tags = json.loads(tags)
         except Exception:
-            d["tags"] = []
-    elif tags is None:
+            tags = []
+    if isinstance(tags, list):
+        d["tags"] = [item for item in tags if isinstance(item, str)]
+    else:
         d["tags"] = []
     return d
 
