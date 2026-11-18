@@ -870,7 +870,7 @@ class TestAllCrawlersSecurityAndRegression:
 
         def respond(req: httpx.Request) -> httpx.Response:
             requested.append(str(req.url))
-            if "main.naver" in req.url.path:
+            if "main.naver" in req.url.path or req.url.path.startswith("/section/"):
                 return httpx.Response(
                     200,
                     text=(
