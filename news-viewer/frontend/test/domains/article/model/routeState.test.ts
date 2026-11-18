@@ -16,6 +16,7 @@ import {
   resetFiltersRoute,
   resetSearchRoute,
   resolveArticleDetailError,
+  resolveArticleDetailErrorKind,
   selectArticleRoute,
   backToListRoute,
   shouldAutoSelectFirstArticle,
@@ -234,6 +235,9 @@ describe("URL과 화면 상태 변환·라우트 이동 규칙", () => {
     expect(resolveArticleDetailError(Object.assign(new Error("HTTP 500"), { status: 500 }))).toBe(
       "기사를 불러오지 못했습니다. 서버 연결을 확인해 주세요.",
     );
+    expect(resolveArticleDetailErrorKind(Object.assign(new Error("HTTP 404"), { status: 404 }))).toBe("not_found");
+    expect(resolveArticleDetailErrorKind(Object.assign(new Error("HTTP 500"), { status: 500 }))).toBe("error");
+    expect(resolveArticleDetailErrorKind(new Error("Network failure"))).toBe("error");
 
     expect(
       getDetailEmptyMessage({

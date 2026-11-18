@@ -128,7 +128,7 @@ function NewsViewerShell() {
   const activeListLoading = view === "briefing" ? briefingLoading : isArticlesLoading;
   const activeListError = view === "briefing" ? briefingError : error;
 
-  const { selected, detailLoading, detailError, detailErrorKind } = useArticleDetail({
+  const { selected, detailLoading, detailError, detailErrorKind, retryDetail } = useArticleDetail({
     articleId,
     listArticles: activeListArticles,
     listReady: activeListReady,
@@ -292,6 +292,9 @@ function NewsViewerShell() {
             isCompact={isCompact}
             emptyMessage={detailEmptyMessage}
             forceShowOnCompact={isDetailRoute}
+            errorKind={detailErrorKind}
+            onBackToList={goBackToList}
+            onRetry={retryDetail}
           />
         </div>
       </main>

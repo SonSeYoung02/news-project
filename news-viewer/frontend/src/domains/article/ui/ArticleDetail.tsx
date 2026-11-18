@@ -4,6 +4,7 @@ import type { StyleMap } from "../../../shared/styles/shared.ts";
 import SourceMark from "../../../shared/ui/SourceMark.tsx";
 import { formatDate } from "../../../shared/utils/formatDate.ts";
 import type { Article } from "../model/article.ts";
+import type { DetailErrorKind } from "../model/routeState.ts";
 import ArticleBody from "./ArticleBody.tsx";
 
 const s = {
@@ -24,11 +25,32 @@ const s = {
   detailEmpty: {
     height: "100%",
     display: "flex",
+    flexDirection: "column",
+    gap: 16,
     alignItems: "center",
     justifyContent: "center",
     color: TEXT_MUTED,
     textAlign: "center",
     padding: "32px",
+  },
+  detailEmptyMessage: {
+    fontSize: 14,
+    color: TEXT_SECONDARY,
+    lineHeight: 1.6,
+  },
+  detailEmptyActions: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  secondaryActionButton: sharedStyles.filterButton,
+  primaryActionButton: {
+    ...sharedStyles.filterButton,
+    background: ACCENT,
+    border: `1px solid ${ACCENT}`,
+    color: "#ffffff",
   },
   detailMeta: {
     display: "flex",
@@ -108,6 +130,9 @@ interface ArticleDetailProps {
   isCompact: boolean;
   emptyMessage: string;
   forceShowOnCompact?: boolean;
+  errorKind?: DetailErrorKind;
+  onBackToList?: () => void;
+  onRetry?: () => void;
 }
 
 export default function ArticleDetail({
@@ -115,8 +140,12 @@ export default function ArticleDetail({
   isCompact,
   emptyMessage,
   forceShowOnCompact = false,
+  errorKind = "none",
+  onBackToList,
+  onRetry,
 }: ArticleDetailProps) {
   const showPanel = !isCompact || Boolean(selected) || forceShowOnCompact;
+  const showRecoveryActions = errorKind === "not_found" || errorKind === "error";
   return (
     <div
       aria-label="기사 상세"
@@ -128,9 +157,31 @@ export default function ArticleDetail({
     >
       {!selected ? (
         <div style={s.detailEmpty}>
-          <span style={{ fontSize: 14, color: TEXT_SECONDARY }}>
+          <span style={s.detailEmptyMessage}>
             {emptyMessage}
           </span>
+          {showRecoveryActions && (onBackToList || (errorKind === "error" && onRetry)) && (
+            <div style={s.detailEmptyActions}>
+              {errorKind === "error" && onRetry && (
+                <button
+                  type="button"
+                  style={s.primaryActionButton}
+                  onClick={onRetry}
+                >
+                  다시 시도
+                </button>
+              )}
+              {onBackToList && (
+                <button
+                  type="button"
+                  style={s.secondaryActionButton}
+                  onClick={onBackToList}
+                >
+                  목록으로 돌아가기
+                </button>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <div style={s.readerContainer}>

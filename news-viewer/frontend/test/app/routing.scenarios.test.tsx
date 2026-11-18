@@ -345,4 +345,71 @@ describe("URL 라우팅과 브라우저 뒤로·앞으로 가기 시나리오", 
       expect(document.title).toBe("기사를 불러오지 못함 - 뉴스 뷰어");
     });
   });
+
+  it("없는 기사(404)와 조회 오류 상세 화면에서 목록으로 돌아가기 및 다시 시도로 복구한다", async () => {
+    // 1. 데스크톱 404: 안내 문구 + 목록으로 돌아가기(다시 시도 없음) -> 쿼리 유지한 목록으로 이동 후 첫 기사 자동 선택
+    const pagedArticles = Array.from({ length: 22 }, (_, i) =>
+      createMockArticle({
+        id: i + 1,
+        source: "GeekNews",
+        title: `GeekNews AI 기사 ${i + 1}`,
+        content: "AI 본문",
+      }),
+    );
+    const mock = setupMockFetch({
+      articles: pagedArticles,
+      articleById: { status: 404 },
+    });
+    const user = userEvent.setup();
+
+    const desktop404View = renderRoutedApp(["/articles/999999?source=GeekNews&q=AI&page=2"]);
+    const desktopDetail = screen.getByLabelText("기사 상세");
+
+    await waitFor(() => {
+      expect(within(desktopDetail).getByText("요청한 기사를 찾을 수 없습니다.")).toBeInTheDocument();
+    });
+    expect(within(desktopDetail).queryByRole("button", { name: "다시 시도" })).not.toBeInTheDocument();
+
+    await user.click(within(desktopDetail).getByRole("button", { name: "목록으로 돌아가기" }));
+    await waitFor(() => {
+      expect(desktop404View.getUrl()).toBe("/articles/21?source=GeekNews&q=AI&page=2");
+    });
+    desktop404View.unmount();
+
+    // 2. 모바일 네트워크/500 오류: 다시 시도 클릭 시 단건 재조회 성공, 다른 404에서 목록으로 돌아가기 시 쿼리 유지 목록 복귀
+    setViewportCompact(true);
+    mock.setArticleById(new Error("Network error"));
+    const mobileErrView = renderRoutedApp(["/articles/777?source=GeekNews&q=AI&page=2"]);
+    const mobileDetail = screen.getByLabelText("기사 상세");
+
+    await waitFor(() => {
+      expect(
+        within(mobileDetail).getByText("기사를 불러오지 못했습니다. 서버 연결을 확인해 주세요."),
+      ).toBeInTheDocument();
+    });
+    expect(within(mobileDetail).getByRole("button", { name: "목록으로 돌아가기" })).toBeInTheDocument();
+
+    mock.setArticleById(
+      createMockArticle({
+        id: 777,
+        source: "GeekNews",
+        title: "재시도로 불러온 기사 777",
+        content: "복구된 본문",
+      }),
+    );
+    await user.click(within(mobileDetail).getByRole("button", { name: "다시 시도" }));
+    await waitFor(() => {
+      expect(within(mobileDetail).getByRole("heading", { name: "재시도로 불러온 기사 777" })).toBeInTheDocument();
+    });
+    mobileErrView.unmount();
+
+    mock.setArticleById({ status: 404 });
+    const mobile404View = renderRoutedApp(["/articles/999999?source=GeekNews&q=AI&page=2"]);
+    const mobile404Detail = screen.getByLabelText("기사 상세");
+    await waitFor(() => {
+      expect(within(mobile404Detail).getByText("요청한 기사를 찾을 수 없습니다.")).toBeInTheDocument();
+    });
+    await user.click(within(mobile404Detail).getByRole("button", { name: "목록으로 돌아가기" }));
+    expect(mobile404View.getUrl()).toBe("/articles?source=GeekNews&q=AI&page=2");
+  });
 });

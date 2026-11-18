@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchArticleById } from "../api/articleApi.ts";
 import type { Article } from "../model/article.ts";
 import {
@@ -20,7 +20,16 @@ export function useArticleDetail({ articleId, listArticles, listReady }: UseArti
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
   const [detailErrorKind, setDetailErrorKind] = useState<DetailErrorKind>("none");
+  const [detailRetry, setDetailRetry] = useState(0);
   const detailReqRef = useRef(0);
+
+  const retryDetail = useCallback(() => {
+    setDetailError("");
+    setDetailErrorKind("none");
+    setDetailLoading(true);
+    setFetchedId(null);
+    setDetailRetry((n) => n + 1);
+  }, []);
 
   const articleInList =
     articleId !== null && listReady
@@ -78,7 +87,7 @@ export function useArticleDetail({ articleId, listArticles, listReady }: UseArti
       });
 
     return () => controller.abort();
-  }, [articleId, listReady, articleInList]);
+  }, [articleId, listReady, articleInList, detailRetry]);
 
   if (articleId === null) {
     return {
@@ -86,6 +95,7 @@ export function useArticleDetail({ articleId, listArticles, listReady }: UseArti
       detailLoading: false,
       detailError: "",
       detailErrorKind: "none" as DetailErrorKind,
+      retryDetail,
     };
   }
 
@@ -95,6 +105,7 @@ export function useArticleDetail({ articleId, listArticles, listReady }: UseArti
       detailLoading: false,
       detailError: "",
       detailErrorKind: "none" as DetailErrorKind,
+      retryDetail,
     };
   }
 
@@ -104,6 +115,7 @@ export function useArticleDetail({ articleId, listArticles, listReady }: UseArti
       detailLoading: true,
       detailError: "",
       detailErrorKind: "none" as DetailErrorKind,
+      retryDetail,
     };
   }
 
@@ -112,5 +124,6 @@ export function useArticleDetail({ articleId, listArticles, listReady }: UseArti
     detailLoading,
     detailError,
     detailErrorKind,
+    retryDetail,
   };
 }
