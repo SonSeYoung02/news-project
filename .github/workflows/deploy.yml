@@ -15,7 +15,6 @@ on:
       - ".github/ISSUE_TEMPLATE/**"
       - ".gitattributes"
       - ".gitignore"
-      - "start.ps1"
   workflow_dispatch:
     inputs:
       force_crawler:

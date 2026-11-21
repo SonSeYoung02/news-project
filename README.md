@@ -126,8 +126,7 @@ flowchart LR
 │   ├── lib/crawler.sh      # 공유 잠금·상태·복구·정리 공통 라이브러리
 │   └── systemd/            # 1분 주기 자동 반영 systemd unit/timer
 ├── docker-compose.yml      # core 스택 (proxy, crawler, 볼륨, 네트워크)
-├── docker-compose.app.yml  # 색상별 앱 스택 (web, backend)
-└── start.ps1               # Windows 통합 실행 스크립트
+└── docker-compose.app.yml  # 색상별 앱 스택 (web, backend)
 ```
 
 ---
@@ -155,8 +154,6 @@ uvicorn main:app --reload
 npm install
 npm run dev
 ```
-
-Windows에서는 저장소 루트에서 `.\start.ps1`을 실행하면 백엔드와 웹 뷰어가 각각 새 창에서 시작됩니다. `.\start.ps1 -Crawl`을 쓰면 수집도 함께 1회 실행합니다.
 
 ### Docker로 실행 (라즈베리파이 등)
 
