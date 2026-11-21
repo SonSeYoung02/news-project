@@ -284,3 +284,56 @@ def test_fetch_respects_max_five_requests_per_section_and_deduplicates_across_se
     assert len(articles) == 7
     assert len(requested_articles) == 7
     assert len({a["url"] for a in articles}) == 7
+
+
+def test_fetch_article_content_removes_photo_captions_and_cleans_paragraphs():
+    """네이버 본문에서 사진 캡션 요소(.end_photo_org, .img_desc, em.img_desc)를 제거하고 인라인 태그와 여백을 정리한다."""
+    html = """<!doctype html>
+    <html><body>
+      <article id="dic_area" class="go_trans _article_content">
+        <span class="end_photo_org">
+          <img src="https://imgnews.example/photo.jpg"/>
+          <em class="img_desc">서울 여의도 전경. 사진=연합뉴스</em>
+        </span>
+        <br/>
+        정부가 <strong>인공지능 보안</strong> 점검을 &nbsp; 강화하기로 했다.<br/><br/>
+        <div class="img_desc">관련 보안 가이드라인 표지</div>
+        <figcaption>보안 점검 절차 요약도</figcaption>
+        &nbsp;<br/>
+        업계는 표준 가이드라인 정비에 기대감을 나타냈다.
+      </article>
+    </body></html>"""
+
+    with create_safe_client(
+        transport=httpx.MockTransport(lambda req: httpx.Response(200, text=html, headers={"Content-Type": "text/html"}))
+    ) as client:
+        content = naver._fetch_article_content(client, "https://n.news.naver.com/mnews/article/001/10")
+
+    assert content == "정부가 인공지능 보안 점검을 강화하기로 했다.\n업계는 표준 가이드라인 정비에 기대감을 나타냈다."
+
+
+def test_fetch_article_content_removes_reporter_email_and_copyright_lines_preserving_body():
+    """네이버 본문에서 기자 이메일 줄과 저작권·무단전재 문구만 제거하고 관련 기사 본문은 보존한다."""
+    html = """<!doctype html>
+    <html><body>
+      <article id="dic_area" class="go_trans _article_content">
+        정부는 AI 학습 데이터의 저작권자 보호 기준을 검토하고 있다.<br/><br/>
+        이번 논의에는 무단 전재에 대한 손해배상 기준 개선도 포함됐다.<br/><br/>
+        [사진=연합뉴스]<br/>
+        홍길동 기자 (hong@example.com)<br/>
+        kim@news.co.kr<br/>
+        &lt;저작권자(c) 연합뉴스, 무단 전재-재배포 금지&gt;<br/>
+        ⓒ 매일경제, 무단전재 및 재배포 금지<br/>
+        Copyright © 2026 TechDaily. All rights reserved.
+      </article>
+    </body></html>"""
+
+    with create_safe_client(
+        transport=httpx.MockTransport(lambda req: httpx.Response(200, text=html, headers={"Content-Type": "text/html"}))
+    ) as client:
+        content = naver._fetch_article_content(client, "https://n.news.naver.com/mnews/article/001/11")
+
+    assert (
+        content
+        == "정부는 AI 학습 데이터의 저작권자 보호 기준을 검토하고 있다.\n이번 논의에는 무단 전재에 대한 손해배상 기준 개선도 포함됐다."
+    )
