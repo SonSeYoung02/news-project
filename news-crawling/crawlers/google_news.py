@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 
 from config import REQUEST_TIMEOUT
 
+from ._html_text import normalize_paragraphs
 from ._http import create_safe_client, safe_get, safe_post
 
 logger = logging.getLogger(__name__)
@@ -284,13 +285,14 @@ def _extract_article_body(html_text: str, source_url: str, target_url: str, fall
     except Exception as e:
         logger.warning("Google News 원문 본문 추출 실패 (%s -> %s): %s", source_url[:60], target_url[:60], e)
         return fallback
-    if content and len(content) > _MIN_BODY_LENGTH:
-        return content[:_MAX_BODY_LENGTH]
+    normalized = normalize_paragraphs(content)
+    if len(normalized) > _MIN_BODY_LENGTH:
+        return normalized[:_MAX_BODY_LENGTH]
     logger.warning(
         "Google News 원문 본문 추출 부족 (%s -> %s, length=%d)",
         source_url[:60],
         target_url[:60],
-        len(content) if content else 0,
+        len(normalized),
     )
     return fallback
 

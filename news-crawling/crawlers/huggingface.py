@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 
 from config import REQUEST_TIMEOUT
 
-from ._html_text import feed_content_to_text
+from ._html_text import feed_content_to_text, normalize_paragraphs
 from ._http import create_safe_client, safe_get
 
 logger = logging.getLogger(__name__)
@@ -157,7 +157,7 @@ def _fetch_article_content(client: httpx.Client, url: str, fallback: str) -> str
             include_tables=False,
             no_fallback=False,
         )
-        content = extracted.strip() if extracted else ""
+        content = normalize_paragraphs(extracted)
         if len(content) > _MIN_EXTRACTED_CHARS:
             return content[:_MAX_CONTENT_CHARS]
     except Exception as e:

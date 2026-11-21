@@ -268,3 +268,11 @@ def _collapse_blank_lines(lines: list[str]) -> str:
             continue
         result.append(line)
     return "\n".join(result).strip()
+
+
+def normalize_paragraphs(text: str | None) -> str:
+    """trafilatura 등 줄바꿈으로 구분된 추출 텍스트의 문단 경계를 '\\n\\n'으로 정규화한다."""
+    if not text or not text.strip():
+        return ""
+    paragraphs = [line.strip() for line in text.splitlines() if line.strip()]
+    return "\n\n".join(paragraphs)

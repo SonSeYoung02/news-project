@@ -2,7 +2,7 @@ import re
 
 from bs4 import BeautifulSoup
 
-from crawlers._html_text import feed_content_to_text, html_to_text, looks_like_html
+from crawlers._html_text import feed_content_to_text, html_to_text, looks_like_html, normalize_paragraphs
 from crawlers.geeknews import _parse_feed
 
 _TAG_RESIDUE = re.compile(r"</?[a-zA-Z][a-zA-Z0-9]*[^<>]*>")
@@ -130,3 +130,15 @@ class TestGeekNewsParse:
         articles = _parse_feed(xml)
         assert len(articles) == 1
         assert articles[0]["content"] == _ICEWM_EXPECTED
+
+
+class TestNormalizeParagraphs:
+    def test_single_newlines_become_double_newline_paragraphs(self):
+        """단일 줄바꿈으로 구분된 추출 본문은 '\\n\\n' 문단 구분으로 정규화된다."""
+        raw = "  First paragraph.  \r\nSecond paragraph.\n\n\n   \nThird paragraph.  "
+        assert normalize_paragraphs(raw) == "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
+
+    def test_whitespace_only_returns_empty_string(self):
+        """빈 문자열이나 공백·줄바꿈만 있는 입력은 빈 문자열을 반환한다."""
+        assert normalize_paragraphs("") == ""
+        assert normalize_paragraphs("  \n \r\n\t ") == ""
