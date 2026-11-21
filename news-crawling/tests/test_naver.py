@@ -1,5 +1,6 @@
 """네이버뉴스 크롤러 섹션 주소·기사 링크·본문 추출 회귀 테스트."""
 
+import logging
 from unittest.mock import patch
 
 import httpx
@@ -192,7 +193,7 @@ def test_fetch_continues_remaining_sections_when_one_section_fails():
             return httpx.Response(200, text=world_html, headers={"Content-Type": "text/html"})
         return httpx.Response(
             200,
-            text=_make_article_html("테스트 제목", ["충분한 길이의 정상 본문 문단입니다. " * 5]),
+            text=_make_article_html("테스트 제목", ["충분한 길이의 정상 본문 문단입니다. " * 8]),
             headers={"Content-Type": "text/html"},
         )
 
@@ -269,7 +270,7 @@ def test_fetch_respects_max_five_requests_per_section_and_deduplicates_across_se
         requested_articles.append(str(req.url))
         return httpx.Response(
             200,
-            text=_make_article_html("기사", ["정상 기사 본문 내용입니다. " * 6]),
+            text=_make_article_html("기사", ["정상 기사 본문 내용입니다. " * 10]),
             headers={"Content-Type": "text/html"},
         )
 
@@ -284,3 +285,104 @@ def test_fetch_respects_max_five_requests_per_section_and_deduplicates_across_se
     assert len(articles) == 7
     assert len(requested_articles) == 7
     assert len({a["url"] for a in articles}) == 7
+
+
+def test_fetch_article_content_removes_photo_captions_and_cleans_paragraphs():
+    """네이버 본문에서 사진 캡션 요소(.end_photo_org, .img_desc, em.img_desc)를 제거하고 인라인 태그와 여백을 정리한다."""
+    html = """<!doctype html>
+    <html><body>
+      <article id="dic_area" class="go_trans _article_content">
+        <span class="end_photo_org">
+          <img src="https://imgnews.example/photo.jpg"/>
+          <em class="img_desc">서울 여의도 전경. 사진=연합뉴스</em>
+        </span>
+        <br/>
+        정부가 <strong>인공지능 보안</strong> 점검을 &nbsp; 강화하기로 했다.<br/><br/>
+        <div class="img_desc">관련 보안 가이드라인 표지</div>
+        <figcaption>보안 점검 절차 요약도</figcaption>
+        &nbsp;<br/>
+        업계는 표준 가이드라인 정비에 기대감을 나타냈다.
+      </article>
+    </body></html>"""
+
+    with create_safe_client(
+        transport=httpx.MockTransport(lambda req: httpx.Response(200, text=html, headers={"Content-Type": "text/html"}))
+    ) as client:
+        content = naver._fetch_article_content(client, "https://n.news.naver.com/mnews/article/001/10")
+
+    assert content == "정부가 인공지능 보안 점검을 강화하기로 했다.\n업계는 표준 가이드라인 정비에 기대감을 나타냈다."
+
+
+def test_fetch_article_content_removes_reporter_email_and_copyright_lines_preserving_body():
+    """네이버 본문에서 기자 이메일 줄과 저작권·무단전재 문구만 제거하고 관련 기사 본문은 보존한다."""
+    html = """<!doctype html>
+    <html><body>
+      <article id="dic_area" class="go_trans _article_content">
+        정부는 AI 학습 데이터의 저작권자 보호 기준을 검토하고 있다.<br/><br/>
+        이번 논의에는 무단 전재에 대한 손해배상 기준 개선도 포함됐다.<br/><br/>
+        [사진=연합뉴스]<br/>
+        홍길동 기자 (hong@example.com)<br/>
+        kim@news.co.kr<br/>
+        &lt;저작권자(c) 연합뉴스, 무단 전재-재배포 금지&gt;<br/>
+        ⓒ 매일경제, 무단전재 및 재배포 금지<br/>
+        Copyright © 2026 TechDaily. All rights reserved.
+      </article>
+    </body></html>"""
+
+    with create_safe_client(
+        transport=httpx.MockTransport(lambda req: httpx.Response(200, text=html, headers={"Content-Type": "text/html"}))
+    ) as client:
+        content = naver._fetch_article_content(client, "https://n.news.naver.com/mnews/article/001/11")
+
+    assert (
+        content
+        == "정부는 AI 학습 데이터의 저작권자 보호 기준을 검토하고 있다.\n이번 논의에는 무단 전재에 대한 손해배상 기준 개선도 포함됐다."
+    )
+
+
+def test_fetch_skips_short_or_noise_only_articles_below_150_chars_and_logs_korean(caplog):
+    """네이버 크롤러는 노이즈 제거 후 본문이 최소 길이(150자) 미만인 단신·사진 기사는 제외하고 한국어 로그를 남긴다."""
+    section_html = _make_section_html(
+        "IT/과학",
+        [
+            ("001", "0000000001", "짧은 포토 뉴스 기사 제목", False),
+            ("001", "0000000002", "노이즈 제거 후 짧아지는 기사 제목", False),
+            ("001", "0000000003", "충분한 분량의 정상 기사 제목", False),
+        ],
+    )
+    valid_body = "국내 인공지능 산업과 소프트웨어 생태계의 보안 점검 기준이 전반적으로 강화되고 있다. " * 4
+
+    def respond(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/section/105":
+            return httpx.Response(200, text=section_html, headers={"Content-Type": "text/html"})
+        if req.url.path.startswith("/section/"):
+            return httpx.Response(200, text="<html><body></body></html>", headers={"Content-Type": "text/html"})
+        if req.url.path == "/mnews/article/001/0000000001":
+            return httpx.Response(
+                200,
+                text=_make_article_html("포토", ["현장 모습. 짧은 단신 기사입니다."]),
+                headers={"Content-Type": "text/html"},
+            )
+        if req.url.path == "/mnews/article/001/0000000002":
+            noisy_html = """<!doctype html><html><body><article id="dic_area">
+                <span class="end_photo_org"><em class="img_desc">아주 긴 사진 캡션 설명이 백 글자 가까이 들어가더라도 제거 후에는 짧은 본문만 남게 됩니다. 사진=연합뉴스 제공</em></span><br/>
+                정리 후 150자 미만인 짧은 본문입니다.<br/>
+                홍길동 기자 (hong@example.com)<br/>
+                &lt;저작권자(c) 연합뉴스, 무단 전재-재배포 금지&gt;
+            </article></body></html>"""
+            return httpx.Response(200, text=noisy_html, headers={"Content-Type": "text/html"})
+        return httpx.Response(
+            200,
+            text=_make_article_html("정상", [valid_body]),
+            headers={"Content-Type": "text/html"},
+        )
+
+    with caplog.at_level(logging.WARNING, logger="crawlers.naver"):
+        with patch(
+            "crawlers.naver.create_safe_client",
+            side_effect=lambda **kw: create_safe_client(transport=httpx.MockTransport(respond), **kw),
+        ):
+            articles = naver.fetch()
+
+    assert [a["title"] for a in articles] == ["충분한 분량의 정상 기사 제목"]
+    assert any("150" in rec.message or "짧" in rec.message or "제외" in rec.message for rec in caplog.records)

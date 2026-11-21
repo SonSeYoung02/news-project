@@ -332,3 +332,53 @@ def test_fetch_blog_feed_direct_call_without_client_caps_at_10():
     assert len(articles) == 10
     assert "Detailed engineering report for post-0" in articles[0]["content"]
     assert "Detailed engineering report for post-9" in articles[9]["content"]
+
+
+def test_huggingface_normalizes_trafilatura_paragraphs_to_double_newlines():
+    """Hugging Face 블로그와 논문 상세 페이지의 trafilatura 추출 결과는 '\\n\\n' 문단 구분으로 정규화된다."""
+    feed_xml = _FEED_XML_TEMPLATE.format(
+        items=f"""
+        <item>
+          <title>Time-Series Models in the Streamhouse: A New Frontier and Use Cases</title>
+          <pubDate>Wed, 18 Nov 2026 15:00:23 GMT</pubDate>
+          <link>{_BLOG_URL_1}</link>
+        </item>
+        """
+    )
+
+    def respond_blog(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/blog/feed.xml":
+            return httpx.Response(200, text=feed_xml, headers={"Content-Type": "application/rss+xml"})
+        return httpx.Response(200, text=_BLOG_HTML_1, headers={"Content-Type": "text/html"})
+
+    with patch("crawlers.huggingface.create_safe_client", side_effect=_mock_client_factory(respond_blog)):
+        blog_articles = huggingface.fetch()
+
+    assert len(blog_articles) == 1
+    blog_paragraphs = blog_articles[0]["content"].split("\n\n")
+    assert len(blog_paragraphs) >= 4
+    assert "Real-time forecasting, anomaly detection, and optimization" in blog_paragraphs[1]
+
+    papers_html = (
+        '<html><body><a href="/papers/2611.00001"><h3>Sparse Attention Routing at Scale</h3></a></body></html>'
+    )
+    paper_detail_html = """<!DOCTYPE html>
+    <html><body><main><section>
+      <h1>Sparse Attention Routing at Scale</h1>
+      <h2>Abstract</h2>
+      <p>We propose a hardware-aware sparse attention routing mechanism that reduces memory bandwidth overhead during long-context decoding while preserving accuracy across reasoning and retrieval benchmarks.</p>
+      <p>Extensive experiments on multi-node GPU clusters demonstrate significant throughput improvements without degrading downstream task quality.</p>
+    </section></main></body></html>"""
+
+    def respond_paper(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/papers":
+            return httpx.Response(200, text=papers_html, headers={"Content-Type": "text/html"})
+        return httpx.Response(200, text=paper_detail_html, headers={"Content-Type": "text/html"})
+
+    with patch("crawlers.huggingface.create_safe_client", side_effect=_mock_client_factory(respond_paper)):
+        paper_articles = huggingface._fetch_papers()
+
+    assert len(paper_articles) == 1
+    paper_paragraphs = paper_articles[0]["content"].split("\n\n")
+    assert len(paper_paragraphs) >= 3
+    assert "Extensive experiments on multi-node GPU clusters" in paper_paragraphs[-1]

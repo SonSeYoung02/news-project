@@ -327,3 +327,75 @@ def test_falls_back_with_extraction_warning_when_publisher_blocked_or_short(capl
 
     assert content == _FALLBACK_TEXT
     assert any("추출" in rec.message or "부족" in rec.message for rec in caplog.records)
+
+
+def test_google_news_normalizes_trafilatura_paragraphs_to_double_newlines():
+    """Google News 원문 추출 결과의 단일 줄바꿈 문단 구분은 '\\n\\n'으로 정규화된다."""
+    rss_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>Helping American Farmers Compete in Global Markets</title>
+      <link>https://publisher.example/news/helping-farmers</link>
+      <description>Short RSS summary</description>
+    </item>
+  </channel>
+</rss>
+"""
+
+    def respond(req: httpx.Request) -> httpx.Response:
+        if req.url.host == "news.google.com":
+            return httpx.Response(200, text=rss_xml, headers={"Content-Type": "application/xml; charset=utf-8"})
+        return httpx.Response(200, text=_PUBLISHER_HTML, headers={"Content-Type": "text/html; charset=utf-8"})
+
+    transport = httpx.MockTransport(respond)
+    with patch(
+        "crawlers.google_news.create_safe_client",
+        side_effect=lambda **kw: create_safe_client(transport=transport, **kw),
+    ):
+        articles = google_news.fetch()
+
+    assert len(articles) == 1
+    paragraphs = articles[0]["content"].split("\n\n")
+    assert len(paragraphs) == 4
+    assert "Rail freight investment across the Midwest" in paragraphs[1]
+    assert "Industry analysts note" in paragraphs[3]
+
+
+def test_google_news_excludes_rss_fallback_only_articles_and_logs_korean(caplog):
+    """Google News 원문 추출에 실패해 RSS description 폴백만 남은 기사는 제외하고 한국어 로그를 남긴다."""
+    rss_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>Blocked Paywall News - Example Times</title>
+      <link>https://publisher.example/news/paywall-only</link>
+      <description>Blocked Paywall News Example Times</description>
+    </item>
+    <item>
+      <title>Helping American Farmers Compete in Global Markets</title>
+      <link>https://publisher.example/news/helping-farmers</link>
+      <description>Short RSS summary</description>
+    </item>
+  </channel>
+</rss>
+"""
+
+    def respond(req: httpx.Request) -> httpx.Response:
+        if req.url.host == "news.google.com":
+            return httpx.Response(200, text=rss_xml, headers={"Content-Type": "application/xml; charset=utf-8"})
+        if req.url.path == "/news/paywall-only":
+            return httpx.Response(403, text="Forbidden", headers={"Content-Type": "text/html"})
+        return httpx.Response(200, text=_PUBLISHER_HTML, headers={"Content-Type": "text/html; charset=utf-8"})
+
+    transport = httpx.MockTransport(respond)
+    with caplog.at_level(logging.WARNING, logger="crawlers.google_news"):
+        with patch(
+            "crawlers.google_news.create_safe_client",
+            side_effect=lambda **kw: create_safe_client(transport=transport, **kw),
+        ):
+            articles = google_news.fetch()
+
+    assert len(articles) == 1
+    assert articles[0]["url"] == "https://publisher.example/news/helping-farmers"
+    assert any("제외" in rec.message or "폴백" in rec.message for rec in caplog.records)
