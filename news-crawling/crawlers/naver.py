@@ -14,6 +14,9 @@ from ._http import UnsafeURLError, create_safe_client, safe_get, validate_url
 logger = logging.getLogger(__name__)
 
 _MAX_ARTICLES_PER_SECTION = 5
+# 네이버뉴스 정리 후 본문 최소 길이(150자): 사진·단신 기사나 캡션·저작권 문구 제거 후
+# 실질적 기사 문맥이 남지 않는 짧은 본문을 저장 대상에서 제외하기 위한 기준.
+_MIN_BODY_LENGTH = 150
 _SECTION_URLS = [
     "https://news.naver.com/section/105",  # IT/과학
     "https://news.naver.com/section/101",  # 경제
@@ -159,6 +162,14 @@ def fetch() -> list[dict[str, Any]]:
                         section_requests += 1
                         content = _fetch_article_content(client, href)
                         if not content:
+                            continue
+                        if len(content) < _MIN_BODY_LENGTH:
+                            logger.warning(
+                                "네이버 본문 최소 길이(%d자) 미만으로 기사 제외 (제목: %s, 길이: %d)",
+                                _MIN_BODY_LENGTH,
+                                title[:50],
+                                len(content),
+                            )
                             continue
 
                         articles.append(

@@ -34,6 +34,8 @@ _DEFAULT_GARTURL_CONTEXT = [
     None,
     0,
 ]
+# Google News 원문 최소 길이(200자): RSS description(제목+언론사명 수준)이나 페이월·로그인 안내 문구 등
+# 실질적 본문이 없는 추출 결과를 걸러내기 위한 기준.
 _MIN_BODY_LENGTH = 200
 _MAX_BODY_LENGTH = 8000
 _QUERIES = [
@@ -93,13 +95,21 @@ def _fetch_query(
             "html.parser",
         ).get_text(" ", strip=True)
 
+        title_text = title.get_text(strip=True)
         content = _fetch_article_content(client, url, fallback)
+        if not content or content == fallback or len(content) <= _MIN_BODY_LENGTH:
+            logger.warning(
+                "Google News 원문 추출 실패로 폴백 전용·단문 기사 제외 (제목: %s, 길이: %d)",
+                title_text[:50],
+                len(content) if content else 0,
+            )
+            continue
 
         articles.append(
             {
                 "url": url,
                 "source": "Google News",
-                "title": title.get_text(strip=True),
+                "title": title_text,
                 "content": content,
                 "published_at": pub_date.get_text(strip=True) if pub_date else datetime.now().isoformat(),
                 "crawled_at": datetime.now().isoformat(),

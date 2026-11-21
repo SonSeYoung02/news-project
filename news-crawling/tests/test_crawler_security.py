@@ -833,7 +833,7 @@ class TestStreamingSizeBudgetAndMime:
 
 class TestAllCrawlersSecurityAndRegression:
     def test_google_news_blocks_redirect_ssrf_and_oversize_while_preserving_normal_and_fallback(self):
-        """Google News 크롤러는 내부 리다이렉트·대용량 응답 시 폴백 본문을 쓰고 정상 본문은 8000자로 수집한다."""
+        """Google News 크롤러는 내부 리다이렉트 시 폴백만 남은 기사를 제외하고 정상 본문은 8000자로 수집한다."""
         for destination in (
             "http://127.0.0.1/internal",
             "http://192.168.0.1/admin",
@@ -867,8 +867,7 @@ class TestAllCrawlersSecurityAndRegression:
                     articles = google_news._fetch_query(client, "test", "AI", set())
 
             assert destination not in requested
-            assert len(articles) == 1
-            assert articles[0]["content"] == "RSS fallback text"
+            assert len(articles) == 0
 
         # Oversized stream triggers early stop and returns fallback
         stream = CountingStream(block_size=65536, blocks=32)
@@ -910,7 +909,7 @@ class TestAllCrawlersSecurityAndRegression:
     def test_naver_blocks_unsafe_href_and_redirect_and_preserves_normal_crawl(self):
         """네이버뉴스 크롤러는 내부 IP 링크와 SSRF 리다이렉트를 차단하고 정상 기사만 수집한다."""
         requested = []
-        long_korean = "국내 인공지능 산업이 빠르게 성장하고 있습니다. " * 5
+        long_korean = "국내 인공지능 산업이 빠르게 성장하고 있습니다. " * 7
 
         def respond(req: httpx.Request) -> httpx.Response:
             requested.append(str(req.url))
