@@ -15,8 +15,11 @@ backend/
 │   ├── briefing/         # AI 브리핑 도메인 (router, service, cache, repository, schemas)
 │   ├── meta/             # 카테고리·출처 메타 도메인 (router, repository, schemas)
 │   └── status/           # 서버 상태 대시보드 도메인 (router)
+├── scripts/
+│   └── export_openapi.py # OpenAPI 명세를 openapi.json으로 내보내기·일치 검사
 ├── tests/                # 단위 및 통합 테스트
 ├── main.py               # FastAPI 애플리케이션 엔트리포인트
+├── openapi.json          # API 계약 원본 (코드에서 자동 생성, 직접 수정 금지)
 ├── requirements.txt      # 런타임 Python 의존성
 ├── requirements-dev.txt  # 개발/테스트 의존성 (pytest, ruff)
 ├── ruff.toml             # Ruff 린터·포매터 설정
@@ -73,6 +76,25 @@ uvicorn main:app --reload
 | API 서버 | `http://localhost:8000` |
 | 자동 문서 (Swagger) | `http://localhost:8000/docs` |
 | 자동 문서 (ReDoc) | `http://localhost:8000/redoc` |
+| OpenAPI 명세 (JSON) | `http://localhost:8000/openapi.json` |
+
+---
+
+## API 계약 (OpenAPI)
+
+API 계약의 원본은 저장소에 커밋된 [`openapi.json`](openapi.json)입니다. FastAPI가 라우터·Pydantic 스키마에서 자동으로 만든 명세라 손으로 수정하지 않습니다. 타입, 필수 여부, 파라미터 범위, 응답 상태 코드는 이 파일을 기준으로 확인합니다.
+
+```bash
+# 라우터·스키마를 바꾼 뒤 명세 갱신 (news-viewer/backend에서 실행)
+python scripts/export_openapi.py
+
+# 커밋된 명세가 현재 코드와 같은지만 검사 (다르면 종료 코드 1)
+python scripts/export_openapi.py --check
+```
+
+- `tests/test_openapi_contract.py`가 커밋된 `openapi.json`과 현재 코드에서 생성한 명세를 비교합니다. 명세 갱신을 빠뜨리면 `pytest`가 실패합니다.
+- 명세 내용은 설치된 FastAPI·Pydantic 버전에 따라 조금 달라질 수 있습니다. 버전을 올린 뒤 테스트가 실패하면 명세를 다시 생성해 함께 커밋합니다.
+- 필드·파라미터 의미는 스키마의 `Field(description=...)`, 라우터의 `description`·`responses`에 적습니다. 번역문 우선·브리핑 선정 같은 동작 규칙은 OpenSpec `viewer-api` spec에 정리합니다.
 
 ---
 
@@ -326,6 +348,9 @@ python -m ruff check .
 # 백엔드 전체 테스트 실행
 python -m pytest -v
 
+# OpenAPI 명세 일치 검사
+python scripts/export_openapi.py --check
+
 # 파일별 테스트 실행
 python -m pytest tests/test_articles_api_intent.py -v
 python -m pytest tests/test_meta_api_intent.py -v
@@ -336,6 +361,7 @@ python -m pytest tests/test_translated_articles.py -v
 python -m pytest tests/test_search_and_filters.py -v
 python -m pytest tests/test_briefing.py -v
 python -m pytest tests/test_security_api.py -v
+python -m pytest tests/test_openapi_contract.py -v
 ```
 
 ---
