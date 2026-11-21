@@ -12,6 +12,7 @@ from app.common.config import (
     SQLITE_MAX_INT64,
     SQLITE_MIN_INT64,
 )
+from app.common.schemas import ErrorResponse
 
 router = APIRouter()
 
@@ -26,10 +27,16 @@ router = APIRouter()
 def get_articles(
     page: int = Query(1, ge=1, le=MAX_PAGE, description=f"페이지 번호 (1~{MAX_PAGE})"),
     size: int = Query(20, ge=1, le=100, description="페이지당 기사 수 (최대 100)"),
-    category: Optional[str] = Query(None, max_length=MAX_FILTER_LENGTH, description="대분류 필터 (예: IT/과학, 경제)"),
-    source: Optional[str] = Query(None, max_length=MAX_FILTER_LENGTH, description="출처 필터 (예: devto, google_news)"),
+    category: Optional[str] = Query(
+        None, max_length=MAX_FILTER_LENGTH, description="대분류 일치 필터 (예: AI, IT, 경제, 국제)"
+    ),
+    source: Optional[str] = Query(
+        None, max_length=MAX_FILTER_LENGTH, description="출처 문자열 일치 필터 (예: 네이버뉴스, Google News, dev.to)"
+    ),
     q: Optional[str] = Query(
-        None, max_length=MAX_SEARCH_QUERY_LENGTH, description="원문/번역 제목, 본문 또는 요약 검색어"
+        None,
+        max_length=MAX_SEARCH_QUERY_LENGTH,
+        description="부분 일치 검색어. 원문 제목·본문, 요약, completed 번역 제목·본문을 검색",
     ),
 ):
     return service.list_articles(page=page, size=size, category=category, source=source, q=q)
@@ -41,6 +48,7 @@ def get_articles(
     summary="기사 상세 조회",
     description="article_id로 단일 기사의 전체 정보를 반환합니다. 번역 완료 기사는 한국어 번역문을 우선 제공하며, 미번역 시 원문을 반환합니다. 존재하지 않으면 404를 반환합니다.",
     tags=["articles"],
+    responses={404: {"model": ErrorResponse, "description": "해당 ID의 기사가 없음 (detail: Article not found)"}},
 )
 def get_article(
     article_id: int = ApiPath(
