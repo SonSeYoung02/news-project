@@ -1,0 +1,648 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "News Viewer API",
+    "description": "뉴스 크롤링 데이터를 조회하는 REST API. 기사 목록·상세·카테고리·출처·오늘의 AI 브리핑 엔드포인트를 제공합니다.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "summary": "Index",
+        "operationId": "index__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/articles": {
+      "get": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "기사 목록 조회",
+        "description": "크롤링된 뉴스 기사 목록을 페이지네이션으로 반환합니다. 카테고리·출처·키워드로 필터링할 수 있습니다. 번역 완료 기사는 한국어 번역문을 우선 제공합니다.",
+        "operationId": "get_articles_articles_get",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000,
+              "minimum": 1,
+              "description": "페이지 번호 (1~10000)",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "페이지 번호 (1~10000)"
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "페이지당 기사 수 (최대 100)",
+              "default": 20,
+              "title": "Size"
+            },
+            "description": "페이지당 기사 수 (최대 100)"
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "대분류 일치 필터 (예: AI, IT, 경제, 국제)",
+              "title": "Category"
+            },
+            "description": "대분류 일치 필터 (예: AI, IT, 경제, 국제)"
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "출처 문자열 일치 필터 (예: 네이버뉴스, Google News, dev.to)",
+              "title": "Source"
+            },
+            "description": "출처 문자열 일치 필터 (예: 네이버뉴스, Google News, dev.to)"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "부분 일치 검색어. 원문 제목·본문, 요약, completed 번역 제목·본문을 검색",
+              "title": "Q"
+            },
+            "description": "부분 일치 검색어. 원문 제목·본문, 요약, completed 번역 제목·본문을 검색"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArticleListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/articles/{article_id}": {
+      "get": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "기사 상세 조회",
+        "description": "article_id로 단일 기사의 전체 정보를 반환합니다. 번역 완료 기사는 한국어 번역문을 우선 제공하며, 미번역 시 원문을 반환합니다. 존재하지 않으면 404를 반환합니다.",
+        "operationId": "get_article_articles__article_id__get",
+        "parameters": [
+          {
+            "name": "article_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": -9223372036854775808,
+              "description": "조회할 기사 ID (SQLite 64비트 정수 범위)",
+              "title": "Article Id"
+            },
+            "description": "조회할 기사 ID (SQLite 64비트 정수 범위)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Article"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "해당 ID의 기사가 없음 (detail: Article not found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/briefing": {
+      "get": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "오늘의 AI 브리핑",
+        "description": "최근 24시간 동안 수집/발행된 AI 기사 중 주제 및 출처 다양성을 고려한 핵심 브리핑 목록을 반환합니다. 번역 완료 기사는 한국어 번역문을 우선 제공합니다. 대상은 articles.major_category가 AI인 기사이며, 기사 시각은 published_at(파싱 불가 시 crawled_at)을 쓰고 시간대가 없는 값은 한국 시간으로 해석합니다. 아직 고르지 않은 주제(sub_category) → 아직 고르지 않은 출처 → 최신순 → ID 큰 순으로 최대 5건을 고릅니다. 결과는 DB 파일이 바뀌지 않는 동안 30초간 캐시됩니다.",
+        "operationId": "get_briefing_briefing_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BriefingResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/categories": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "카테고리 목록 조회",
+        "description": "기사에 사용된 대분류 카테고리와 각 카테고리의 기사 수를 반환합니다.",
+        "operationId": "get_categories_categories_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CategoryCount"
+                  },
+                  "type": "array",
+                  "title": "Response Get Categories Categories Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sources": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "출처 목록 조회",
+        "description": "크롤링에 사용된 뉴스 출처와 각 출처의 기사 수를 반환합니다.",
+        "operationId": "get_sources_sources_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SourceCount"
+                  },
+                  "type": "array",
+                  "title": "Response Get Sources Sources Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Article": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "기사 ID"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "원문 기사 URL"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "출처 문자열 (예: 네이버뉴스, GeekNews, Google News, GitHub Trending, Hugging Face, arXiv, dev.to)"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "표시용 제목. 현재 원문 해시와 일치하는 completed 번역이 있으면 번역 제목, 없으면 원문 제목"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content",
+            "description": "표시용 본문. 현재 원문 해시와 일치하는 completed 번역이 있으면 번역 본문, 없으면 원문 본문"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At",
+            "description": "출처 게시 시각 (크롤러가 저장한 문자열 그대로)"
+          },
+          "crawled_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Crawled At",
+            "description": "최초 수집 시각 (크롤러가 저장한 문자열 그대로)"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary",
+            "description": "요약. article_analysis 값 우선, 없으면 articles 값"
+          },
+          "major_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Major Category",
+            "description": "대분류 (예: AI, IT, 경제, 국제)"
+          },
+          "sub_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sub Category",
+            "description": "소분류. 브리핑 선정 시 주제 단위로 사용"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags",
+            "description": "태그 목록. 저장값이 배열이 아니거나 잘못되었으면 빈 배열",
+            "default": []
+          },
+          "original_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Title",
+            "description": "원문 제목"
+          },
+          "original_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Content",
+            "description": "원문 본문"
+          },
+          "translated_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Translated Title",
+            "description": "번역 제목. translation_status가 completed일 때만 값이 있음"
+          },
+          "translated_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Translated Content",
+            "description": "번역 본문. translation_status가 completed일 때만 값이 있음"
+          },
+          "translation_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Translation Status",
+            "description": "번역 상태. completed(검증 통과 번역 있음), pending(대기 또는 번역 레코드 없는 영어 기사), failed(영구 오류 누적 3회 이상, 다음 실행에서 재시도 가능), not_needed(번역 레코드 없는 한국어 출처 기사)",
+            "default": "pending"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "url",
+          "source",
+          "title"
+        ],
+        "title": "Article",
+        "description": "기사 응답 모델. `title`·`content`는 완료된 번역이 있으면 번역문, 없으면 원문이다."
+      },
+      "ArticleListResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "필터·검색 조건에 맞는 전체 기사 수"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "description": "요청한 페이지 번호"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size",
+            "description": "요청한 페이지 크기"
+          },
+          "articles": {
+            "items": {
+              "$ref": "#/components/schemas/Article"
+            },
+            "type": "array",
+            "title": "Articles",
+            "description": "해당 페이지의 기사 목록 (crawled_at 내림차순, id 내림차순)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "page",
+          "size",
+          "articles"
+        ],
+        "title": "ArticleListResponse",
+        "description": "기사 목록 페이지 응답."
+      },
+      "BriefingResponse": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "title": "Generated At",
+            "description": "브리핑 계산 시각 (UTC ISO 8601)"
+          },
+          "window_start": {
+            "type": "string",
+            "title": "Window Start",
+            "description": "대상 구간 시작 (generated_at - 24시간, UTC ISO 8601)"
+          },
+          "window_end": {
+            "type": "string",
+            "title": "Window End",
+            "description": "대상 구간 끝 (generated_at, UTC ISO 8601)"
+          },
+          "selection_method": {
+            "type": "string",
+            "title": "Selection Method",
+            "description": "선정 방식 설명"
+          },
+          "articles": {
+            "items": {
+              "$ref": "#/components/schemas/Article"
+            },
+            "type": "array",
+            "title": "Articles",
+            "description": "선정된 기사 목록 (최대 5건, 선정 순서). 대상이 없으면 빈 배열"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at",
+          "window_start",
+          "window_end",
+          "selection_method",
+          "articles"
+        ],
+        "title": "BriefingResponse",
+        "description": "오늘의 AI 브리핑 응답."
+      },
+      "CategoryCount": {
+        "properties": {
+          "major_category": {
+            "type": "string",
+            "title": "Major Category",
+            "description": "대분류 (article_analysis 값 우선)"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count",
+            "description": "기사 수"
+          }
+        },
+        "type": "object",
+        "required": [
+          "major_category",
+          "count"
+        ],
+        "title": "CategoryCount",
+        "description": "대분류별 기사 수."
+      },
+      "ErrorResponse": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "description": "오류 설명 메시지",
+            "examples": [
+              "Article not found"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse",
+        "description": "HTTPException으로 반환하는 FastAPI 기본 오류 응답 형식."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "SourceCount": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "출처 문자열"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count",
+            "description": "기사 수"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "count"
+        ],
+        "title": "SourceCount",
+        "description": "출처별 기사 수."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
